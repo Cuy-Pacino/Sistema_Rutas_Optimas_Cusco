@@ -33,7 +33,7 @@ def splash():
     """Muestra información de inicio en consola."""
     banner = r"""
   ╔══════════════════════════════════════════════════════════════╗
-  ║    SISTEMA DE GESTIÓN DE RUTAS ÓPTIMAS — SAN SEBASTIÁN      ║
+  ║    SISTEMA DE GESTIÓN DE RUTAS ÓPTIMAS — SAN SEBASTIÁN       ║
   ║                  Cusco, Perú  |  2026                        ║
   ║──────────────────────────────────────────────────────────────║
   ║  Algoritmos implementados:                                   ║
@@ -43,7 +43,7 @@ def splash():
   ║    • Backtracking  — Rutas Restringidas    O(n!)             ║
   ║──────────────────────────────────────────────────────────────║
   ║  Programación III — UNSAAC                                   ║
-  ║  M.Sc. Hector E. Ugarte R.  &  M.Sc. Boris Chullo Llave     ║
+  ║  M.Sc. Hector E. Ugarte R.  &  M.Sc. Boris Chullo Llave      ║
   ╚══════════════════════════════════════════════════════════════╝
 """
     print(banner)

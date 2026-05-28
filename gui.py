@@ -78,7 +78,12 @@ class App(tk.Tk):
         self._id_counter   = 1
         self._bloqueadas: list[tuple[str,str]] = []
         self._coloreo_activo = False      # si mostrar coloreo en canvas
-
+        # Zoom y paneo del canvas
+        self._zoom        = 1.0
+        self._pan_x       = 0
+        self._pan_y       = 0
+        self._drag_start  = None
+        # Dibujar canvas
         self._build_ui()
         self._dibujar_grafo()
         self._cargar_demo()
@@ -429,7 +434,7 @@ class App(tk.Tk):
         self.cb_bt_ini.current(0); self.cb_bt_ini.grid(row=0,column=1,padx=4,pady=2)
         self._lbl(bf3,"Hasta:",8,color=TEXT_DIM).grid(row=1,column=0,sticky="w")
         self.cb_bt_fin = ttk.Combobox(bf3,values=nids,font=("Courier New",8),state="readonly",width=15)
-        self.cb_bt_fin.current(2); self.cb_bt_fin.grid(row=1,column=1,padx=4,pady=2)
+        self.cb_bt_fin.current(min(2, len(nids)-1)); self.cb_bt_fin.grid(row=1,column=1,padx=4,pady=2)
 
         # Selección de actividades
         self._sep(t)
@@ -442,16 +447,69 @@ class App(tk.Tk):
     # ── Canvas ────────────────────────────────────────────────
 
     def _build_canvas(self):
-        frame = tk.Frame(self._panel_der,bg=BG_DARK)
-        frame.grid(row=0,column=0,sticky="nsew")
-        frame.rowconfigure(0,weight=1); frame.columnconfigure(0,weight=1)
+        frame = tk.Frame(self._panel_der, bg=BG_DARK)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.rowconfigure(0, weight=1); frame.columnconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(frame,bg="#0d1117",
+        self.canvas = tk.Canvas(frame, bg="#0d1117",
                                 highlightthickness=1,
                                 highlightbackground=BG_CARD)
-        self.canvas.grid(row=0,column=0,sticky="nsew")
-        self.canvas.bind("<Configure>",lambda e: self._dibujar_grafo())
-        self._lbl(frame,"🗺  San Sebastián, Cusco",10,True,ACCENT).place(x=10,y=6)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.canvas.bind("<Configure>",      lambda e: self._dibujar_grafo())
+        # Zoom con scroll
+        self.canvas.bind("<MouseWheel>",     self._on_scroll)       # Windows
+        self.canvas.bind("<Button-4>",       self._on_scroll)       # Linux scroll up
+        self.canvas.bind("<Button-5>",       self._on_scroll)       # Linux scroll down
+        # Paneo con click izquierdo + arrastre
+        self.canvas.bind("<ButtonPress-1>",  self._on_pan_start)
+        self.canvas.bind("<B1-Motion>",      self._on_pan_move)
+        self.canvas.bind("<ButtonRelease-1>",self._on_pan_end)
+        # Doble click para resetear vista
+        self.canvas.bind("<Double-Button-1>",self._reset_vista)
+        self._lbl(frame, "🗺  San Sebastián, Cusco  |  scroll: zoom  |  arrastrar: paneo  |  doble-click: resetear", 9, True, ACCENT).place(x=10, y=6)
+    
+    
+    #Métodos para zoom y paneo del canvas
+    def _on_scroll(self, event):
+        # Determinar dirección
+        if event.num == 4 or event.delta > 0:
+            factor = 1.15
+        else:
+            factor = 1 / 1.15
+        nuevo_zoom = self._zoom * factor
+        # Límites de zoom
+        if not (0.3 <= nuevo_zoom <= 5.0):
+            return
+        # Zoom centrado en el cursor
+        mx, my = event.x, event.y
+        self._pan_x = mx - factor * (mx - self._pan_x)
+        self._pan_y = my - factor * (my - self._pan_y)
+        self._zoom  = nuevo_zoom
+        self._dibujar_grafo()
+
+    def _on_pan_start(self, event):
+        self._drag_start = (event.x, event.y)
+
+    def _on_pan_move(self, event):
+        if self._drag_start is None:
+            return
+        dx = event.x - self._drag_start[0]
+        dy = event.y - self._drag_start[1]
+        self._pan_x += dx
+        self._pan_y += dy
+        self._drag_start = (event.x, event.y)
+        self._dibujar_grafo()
+
+    def _on_pan_end(self, event):
+        self._drag_start = None
+
+    def _reset_vista(self, event=None):
+        self._zoom  = 1.0
+        self._pan_x = 0
+        self._pan_y = 0
+        self._dibujar_grafo()
+
+
 
     def _build_panel_resultados(self):
         frame = tk.Frame(self._panel_der,bg=BG_PANEL)
@@ -459,7 +517,7 @@ class App(tk.Tk):
         frame.rowconfigure(1,weight=1); frame.columnconfigure(0,weight=1)
 
         self._lbl(frame,"📋  Resultados y Análisis Big-O",10,True,ACCENT
-                  ).grid(row=0,column=0,sticky="w",padx=10,pady=4)
+                ).grid(row=0,column=0,sticky="w",padx=10,pady=4)
 
         self.txt_res = tk.Text(
             frame,bg=BG_CARD,fg=TEXT_MAIN,
@@ -478,50 +536,57 @@ class App(tk.Tk):
         c = self.canvas
         c.delete("all")
 
-        # Obtener coloreo si está activo
+        def tx(x): return int(x * self._zoom + self._pan_x)
+        def ty(y): return int(y * self._zoom + self._pan_y)
+        r_zoom = max(3, int(NODE_R * self._zoom))
+
         coloreo = None
         if self._coloreo_activo:
             coloreo = self.grafo.obtener_coloreo()
 
         # Zonas de fondo
-        for zona,nids in ZONAS.items():
+        for zona, nids in ZONAS.items():
             color = ZONA_COLORES[zona]
             xs = [self.grafo.nodos[n].x for n in nids if n in self.grafo.nodos]
             ys = [self.grafo.nodos[n].y for n in nids if n in self.grafo.nodos]
             if xs and ys:
-                mx,my = sum(xs)//len(xs), sum(ys)//len(ys)
-                c.create_oval(mx-70,my-50,mx+70,my+50,
-                              fill=color,outline="",stipple="gray12")
-                c.create_text(mx,my-62,text=f"Zona {zona}",
-                              fill=color,font=("Courier New",7,"bold"))
+                mx, my = tx(sum(xs)//len(xs)), ty(sum(ys)//len(ys))
+                off = int(70 * self._zoom)
+                c.create_oval(mx-off, my-int(50*self._zoom),
+                            mx+off, my+int(50*self._zoom),
+                            fill=color, outline="", stipple="gray12")
+                c.create_text(mx, my - int(62*self._zoom),
+                            text=f"Zona {zona}",
+                            fill=color, font=("Courier New", 7, "bold"))
 
         # Aristas
-        for nid,vecinos in self.grafo.adyacencia.items():
+        for nid, vecinos in self.grafo.adyacencia.items():
             n1 = self.grafo.nodos.get(nid)
-            for vid,dist,tiempo,calle,bloq in vecinos:
+            for vid, dist, tiempo, calle, bloq in vecinos:
                 if vid > nid:
                     n2 = self.grafo.nodos.get(vid)
                     if n1 and n2:
                         col_a = RED_VIF if bloq else "#2d3748"
-                        c.create_line(n1.x,n1.y,n2.x,n2.y,
-                                      fill=col_a,width=1.5,
-                                      dash=(4,4) if bloq else ())
+                        c.create_line(tx(n1.x), ty(n1.y), tx(n2.x), ty(n2.y),
+                                    fill=col_a, width=max(1, self._zoom),
+                                    dash=(4, 4) if bloq else ())
 
         # Rutas resaltadas
         if rutas:
-            for idx,ruta in enumerate(rutas):
-                col_r = (colores[idx] if colores and idx<len(colores) else ACCENT)
-                for i in range(len(ruta)-1):
+            for idx, ruta in enumerate(rutas):
+                col_r = (colores[idx] if colores and idx < len(colores) else ACCENT)
+                for i in range(len(ruta) - 1):
                     n1 = self.grafo.nodos.get(ruta[i])
                     n2 = self.grafo.nodos.get(ruta[i+1])
                     if n1 and n2:
-                        c.create_line(n1.x,n1.y,n2.x,n2.y,
-                                      fill=col_r,width=4,
-                                      arrow=tk.LAST,arrowshape=(10,12,4))
+                        c.create_line(tx(n1.x), ty(n1.y), tx(n2.x), ty(n2.y),
+                                    fill=col_r, width=max(2, int(4*self._zoom)),
+                                    arrow=tk.LAST, arrowshape=(10, 12, 4))
 
         # Nodos
-        for nid,nodo in self.grafo.nodos.items():
-            r = NODE_R + (2 if nodo.es_deposito else 0)
+        for nid, nodo in self.grafo.nodos.items():
+            r = r_zoom + (2 if nodo.es_deposito else 0)
+            cx, cy = tx(nodo.x), ty(nodo.y)
 
             if coloreo:
                 idx_c = coloreo.get(nid, 0)
@@ -529,38 +594,36 @@ class App(tk.Tk):
             elif nodo.es_deposito:
                 fill = RED_VIF
             else:
-                for zona,nids in ZONAS.items():
+                for zona, nids in ZONAS.items():
                     if nid in nids:
                         fill = ZONA_COLORES[zona]
                         break
                 else:
                     fill = "#2c3e50"
 
-            # Anillo si hay pedido pendiente
-            if any(p.nodo_destino==nid and not p.entregado for p in self.pedidos):
-                c.create_oval(nodo.x-r-5,nodo.y-r-5,
-                              nodo.x+r+5,nodo.y+r+5,
-                              fill="",outline=ACCENT,width=2)
+            if any(p.nodo_destino == nid and not p.entregado for p in self.pedidos):
+                c.create_oval(cx-r-5, cy-r-5, cx+r+5, cy+r+5,
+                            fill="", outline=ACCENT, width=2)
 
-            c.create_oval(nodo.x-r,nodo.y-r,nodo.x+r,nodo.y+r,
-                          fill=fill,outline=BG_DARK,width=1.5)
-            c.create_text(nodo.x,nodo.y-r-6,
-                          text=nid[:6],fill=TEXT_MAIN,
-                          font=("Courier New",6,"bold"))
+            c.create_oval(cx-r, cy-r, cx+r, cy+r,
+                        fill=fill, outline=BG_DARK, width=1.5)
+            c.create_text(cx, cy - r - 6,
+                        text=nid[:6], fill=TEXT_MAIN,
+                        font=("Courier New", max(5, int(6*self._zoom)), "bold"))
 
         # Leyenda
         ly = 22
-        for zona,color in ZONA_COLORES.items():
-            c.create_rectangle(10,ly,20,ly+10,fill=color,outline="")
-            c.create_text(24,ly+5,text=f"Zona {zona}",
-                          fill=color,font=("Courier New",7),anchor="w")
+        for zona, color in ZONA_COLORES.items():
+            c.create_rectangle(10, ly, 20, ly+10, fill=color, outline="")
+            c.create_text(24, ly+5, text=f"Zona {zona}",
+                        fill=color, font=("Courier New", 7), anchor="w")
             ly += 15
 
         if coloreo:
             n_col = len(set(coloreo.values()))
-            c.create_text(10,ly+10,
-                          text=f"Coloreo: {n_col} colores",
-                          fill=ACCENT,font=("Courier New",7,"bold"),anchor="w")
+            c.create_text(10, ly+10,
+                        text=f"Coloreo: {n_col} colores",
+                        fill=ACCENT, font=("Courier New", 7, "bold"), anchor="w")
 
     # ══ ACCIONES PEDIDOS ════════════════════════════════════
 
@@ -647,20 +710,38 @@ class App(tk.Tk):
         if not self.pedidos: return messagebox.showwarning("","Agrega pedidos.")
         rs = divide_y_venceras(self.grafo, self.repartidores, self.pedidos)
         self._dibujar_grafo([r.ruta for r in rs],
-                             [ALGO_COLORES["Divide y Vencerás"]]*len(rs))
+                            [ALGO_COLORES["Divide y Vencerás"]]*len(rs))
         self._escribir_resultado(comparar_algoritmos(rs))
         self._escribir_resumen(f"D&V — {len(rs)} zona(s) | "
                                f"{sum(len(r.pedidos_incluidos) for r in rs)} pedidos")
 
     def _run_backtracking(self):
-        ini = self.cb_bt_ini.get(); fin = self.cb_bt_fin.get()
-        if ini == fin: return messagebox.showwarning("","Inicio ≠ Fin.")
-        self._escribir_resultado("⏳ Backtracking en ejecución…"); self.update()
+        ini = self.cb_bt_ini.get()
+        fin = self.cb_bt_fin.get()
+        if ini == fin:
+            return messagebox.showwarning("", "Inicio ≠ Fin.")
+        # Si el destino no corresponde a ningún pedido, avisarlo
+        destinos_con_pedido = {p.nodo_destino for p in self.pedidos if not p.entregado}
+        if fin not in destinos_con_pedido and destinos_con_pedido:
+            fin_sugerido = next(iter(destinos_con_pedido))
+            respuesta = messagebox.askyesno(
+                "Destino sin pedido",
+                f"El nodo destino '{fin}' no tiene pedidos pendientes.\n"
+                f"¿Usar '{fin_sugerido}' (primer nodo con pedido) en su lugar?"
+            )
+            if respuesta:
+                fin = fin_sugerido
+
+        self._escribir_resultado("⏳ Backtracking en ejecución…")
+        self.update()
+
         def run():
             r = backtracking_rutas_restringidas(
                 self.grafo, ini, fin, list(self._bloqueadas), 30)
             self.after(0, lambda: self._mostrar(r))
-            self.after(0, lambda: self._dibujar_grafo([r.ruta],[ALGO_COLORES["Backtracking"]]))
+            self.after(0, lambda: self._dibujar_grafo(
+                [r.ruta], [ALGO_COLORES["Backtracking"]]))
+
         threading.Thread(target=run, daemon=True).start()
 
     def _run_seleccion_act(self):
@@ -720,8 +801,10 @@ class App(tk.Tk):
             r_greedy = greedy_vecino_cercano(self.grafo, rep, self.pedidos)
             r_frac   = mochila_fraccionaria(rep, self.pedidos, self.grafo)
             r_dyv    = divide_y_venceras(self.grafo, self.repartidores, self.pedidos)
-            r_bt     = backtracking_rutas_restringidas(
-                self.grafo,"DEPOSITO","PLAZA_SS",list(self._bloqueadas),20)
+            destinos = [p.nodo_destino for p in self.pedidos if not p.entregado]
+            fin_bt = destinos[0] if destinos else "PLAZA_SS"
+            r_bt = backtracking_rutas_restringidas(
+                self.grafo, "DEPOSITO", fin_bt, list(self._bloqueadas), 20)
             todos = [r_greedy, r_frac] + r_dyv + [r_bt]
             texto = comparar_algoritmos(todos)
             rutas   = [r.ruta for r in todos if r.ruta]
