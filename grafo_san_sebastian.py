@@ -282,70 +282,86 @@ def _quick_sort_por_grado(vertices: list[str],
 
 def crear_nodos() -> dict[str, Nodo]:
     datos = [
-        ("DEPOSITO",    "Depósito Central (Av. La Cultura)",   -13.5178, -71.9621, True),
-        ("PLAZA_SS",    "Plaza de San Sebastián",              -13.5312, -71.9493, False),
-        ("MERCADO",     "Mercado San Sebastián",               -13.5330, -71.9510, False),
-        ("HOSP_SS",     "Centro de Salud San Sebastián",       -13.5295, -71.9472, False),
-        ("AV_CULTURA",  "Av. La Cultura / Prolongación",       -13.5190, -71.9580, False),
-        ("TTIO",        "Terminal Terrestre / Av. Velasco",    -13.5150, -71.9650, False),
-        ("LARAPA",      "Urb. Larapa",                         -13.5270, -71.9420, False),
-        ("ANGOSTURA",   "Sector Angostura",                    -13.5400, -71.9550, False),
-        ("VILLA_SOL",   "Villa El Sol",                        -13.5360, -71.9480, False),
-        ("KORIPATA",    "Koripata / Av. Tomasa Tito",          -13.5230, -71.9540, False),
-        ("CACHIMAYO",   "Cachimayo",                           -13.5450, -71.9600, False),
-        ("SANTA_ANA",   "Santa Ana – San Sebastián",           -13.5350, -71.9430, False),
-        ("URB_MAG",     "Urb. Magisterio",                     -13.5210, -71.9510, False),
-        ("PASO_SUYO",   "Paso Suyos",                          -13.5480, -71.9520, False),
-        ("AV_EJÉRCITO", "Av. del Ejército / Ovalo",            -13.5170, -71.9700, False),
-        ("CLORINDA",    "Urb. Clorinda Matto",                 -13.5250, -71.9460, False),
-        ("TTIKA",       "Sector Ttica Ttica",                  -13.5300, -71.9560, False),
-        ("WIMPILLAY",   "Wimpillay",                           -13.5420, -71.9480, False),
-        ("PATA_PATA",   "Pata Pata (altura)",                  -13.5380, -71.9390, False),
-        ("KENAJPATA",   "Kenajpata",                           -13.5500, -71.9450, False),
-    ]
+        # --- EXTREMO IZQUIERDO / ZONA ALTA ---
+        ("KARI_GRANDE",       "Kari Grande",                       -13.5200, -71.9320, False),
+        ("PRIMER_PARADERO",   "Primer paradero",                   -13.5230, -71.9300, False),
+        ("DIEGO_QUISPE",      "Colegio Diego Quispe Tito",                      -13.5260, -71.9310, False),
+        
+        # --- PARTE ALTA SUPERIOR ---
+        ("CAMPINA_ALTA",      "APV Campiña alta",                  -13.5180, -71.9250, False),
+        
+        # --- SECTOR CENTRAL (EJE PRINCIPAL DE PARADEROS) ---
+        ("SEGUNDO_PARADERO",  "Segundo Paradero",                  -13.5240, -71.9260, False),
+        ("TERCER_PARADERO",   "Tercer Paradero",                   -13.5245, -71.9220, False),
+        ("CUARTO_PARADERO",   "Cuarto Paradero",                   -13.5250, -71.9180, False),
+        ("QUINTO_PARADERO",   "Quinto Paradero",                   -13.5252, -71.9140, False),
+        ("SEXTO_PARADERO",    "Sexto Paradero",                    -13.5254, -71.9100, False),
+        ("SEPTIMO_PARADERO",  "Séptimo Paradero",                  -13.5256, -71.9060, False),
+        
+        # --- SECTOR CENTRAL INFERIOR (HISTÓRICO / DEPÓSITO) ---
+        ("PLAZA_SS",          "Plaza de Armas de San Sebastián",   -13.5280, -71.9280, False),
+        ("CEMENTERIO",        "Cementerio Central de San Sebastián",-13.5310, -71.9270, False),
+        ("DEPOSITO",          "Depósito Central",                  -13.5270, -71.9200, True),  # Único depósito
+        
+        # --- SECTOR BAJO / COSTANERA / AEROPUERTO ---
+        ("MIRADOR_AVIONES",   "Mirador de Aviones",                -13.5290, -71.9100, False),
+        ("AV_COSTANERA",      "Av. Costanera/Los Nogales",        -13.5320, -71.9120, False),
+        ("PARADERO_JOYAS",    "Paradero las joyas",                -13.5340, -71.9150, False),
+        ("PUENTE_TUPAC",      "Puente Tupac Amaru/Vía de Evitamiento",-13.5350, -71.9050, False),
+        
+        # --- EXTREMO DERECHO / SALIDA A SAN JERÓNIMO ---
+        ("ENACO",             "Enaco",                             -13.5280, -71.9020, False),
+        ("URB_TUPAC",         "Urb. Túpac Amaru",                  -13.5330, -71.8990, False),
+        ("CACHIMAYO",         "Cachimayo",                         -13.5300, -71.8920, False),
+        ]
     nodos = {}
     for id_, nombre, lat, lon, deposito in datos:
         x, y = latlon_a_px(lat, lon)
         nodos[id_] = Nodo(id=id_, nombre=nombre, lat=lat, lon=lon,
-                          x=x, y=y, es_deposito=deposito)
+                        x=x, y=y, es_deposito=deposito)
     return nodos
 
 
 def crear_aristas() -> list[Arista]:
     datos = [
-        ("DEPOSITO",    "AV_CULTURA",   600,   3.0,  "Av. La Cultura"),
-        ("DEPOSITO",    "TTIO",         900,   5.0,  "Av. La Cultura Norte"),
-        ("AV_CULTURA",  "KORIPATA",     700,   4.0,  "Prolongación Av. La Cultura"),
-        ("AV_CULTURA",  "URB_MAG",      500,   3.0,  "Jr. Los Pinos"),
-        ("AV_CULTURA",  "AV_EJÉRCITO",  1200,  6.0,  "Av. La Cultura"),
-        ("TTIO",        "AV_EJÉRCITO",  800,   4.5,  "Av. Velasco Astete"),
-        ("KORIPATA",    "PLAZA_SS",     900,   5.0,  "Av. San Sebastián"),
-        ("KORIPATA",    "TTIKA",        600,   3.5,  "Jr. Ttica Ttica"),
-        ("KORIPATA",    "CLORINDA",     550,   3.0,  "Jr. Clorinda Matto"),
-        ("URB_MAG",     "CLORINDA",     400,   2.5,  "Jr. Magisterio"),
-        ("PLAZA_SS",    "MERCADO",      350,   2.0,  "Jr. del Cementerio"),
-        ("PLAZA_SS",    "HOSP_SS",      400,   2.5,  "Jr. Municipalidad"),
-        ("PLAZA_SS",    "VILLA_SOL",    700,   4.0,  "Av. Prolongación San Sebastián"),
-        ("PLAZA_SS",    "SANTA_ANA",    600,   3.5,  "Jr. Santa Ana"),
-        ("MERCADO",     "TTIKA",        500,   3.0,  "Jr. Mercado"),
-        ("MERCADO",     "ANGOSTURA",    800,   5.0,  "Camino a Angostura"),
-        ("HOSP_SS",     "LARAPA",       700,   4.0,  "Jr. Larapa"),
-        ("HOSP_SS",     "CLORINDA",     500,   3.0,  "Jr. Salud"),
-        ("VILLA_SOL",   "WIMPILLAY",    600,   3.5,  "Pasaje El Sol"),
-        ("VILLA_SOL",   "ANGOSTURA",    700,   4.0,  "Camino Angostura"),
-        ("LARAPA",      "PATA_PATA",    900,   5.0,  "Subida Larapa"),
-        ("LARAPA",      "SANTA_ANA",    800,   4.5,  "Jr. Larapa Baja"),
-        ("ANGOSTURA",   "CACHIMAYO",    1000,  6.0,  "Carretera Cachimayo"),
-        ("ANGOSTURA",   "PASO_SUYO",    900,   5.5,  "Camino Paso Suyo"),
-        ("WIMPILLAY",   "KENAJPATA",    800,   5.0,  "Camino a Kenajpata"),
-        ("WIMPILLAY",   "PASO_SUYO",    700,   4.5,  "Jr. Wimpillay"),
-        ("SANTA_ANA",   "PATA_PATA",    700,   4.5,  "Subida Santa Ana"),
-        ("CACHIMAYO",   "KENAJPATA",    900,   5.5,  "Camino rural"),
-        ("PASO_SUYO",   "KENAJPATA",    700,   4.5,  "Pasaje Sur"),
-        ("TTIKA",       "ANGOSTURA",    600,   3.5,  "Jr. Ttica Ttica Sur"),
-        ("CLORINDA",    "PLAZA_SS",     700,   4.0,  "Jr. Clorinda"),
-        ("PATA_PATA",   "KENAJPATA",    1100,  7.0,  "Camino de altura"),
-    ]
+        # --- ZONA ALTA / OSTE (Kari Grande / Primer paradero) ---
+        ("KARI_GRANDE",       "PRIMER_PARADERO",    500,  3.5, "Acceso Kari Grande"),
+        ("PRIMER_PARADERO",   "DIEGO_QUISPE",       350,  2.0, "Av. Diego Quispe"),
+        ("PRIMER_PARADERO",   "SEGUNDO_PARADERO",   400,  2.0, "Eje Paraderos Principal"),
+        
+        # --- CIRCUITO DE CAMPINA ALTA ---
+        ("SEGUNDO_PARADERO",  "CAMPINA_ALTA",       600,  4.0, "Subida Campiña"),
+        ("CAMPINA_ALTA",      "TERCER_PARADERO",    550,  3.5, "Bajada Campiña"),
+        
+        # --- CONTINUACIÓN EJE PRINCIPAL DE PARADEROS ---
+        ("SEGUNDO_PARADERO",  "TERCER_PARADERO",    350,  1.5, "Eje Paraderos Principal"),
+        ("TERCER_PARADERO",   "CUARTO_PARADERO",    350,  1.5, "Eje Paraderos Principal"),
+        ("CUARTO_PARADERO",   "QUINTO_PARADERO",    350,  1.5, "Eje Paraderos Principal"),
+        ("QUINTO_PARADERO",   "SEXTO_PARADERO",     350,  1.5, "Eje Paraderos Principal"),
+        ("SEXTO_PARADERO",    "SEPTIMO_PARADERO",   350,  1.5, "Eje Paraderos Principal"),
+        
+        # --- CONEXIONES CON PLAZA SAN SEBASTIÁN Y CEMENTERIO ---
+        ("DIEGO_QUISPE",      "PLAZA_SS",           450,  2.5, "Prolongación Cusco"),
+        ("PLAZA_SS",          "CEMENTERIO",         300,  1.5, "Calle Cementerio"),
+        ("PLAZA_SS",          "DEPOSITO",           650,  3.0, "Av. de la Cultura"),
+        
+        # --- CONEXIONES CON EL DEPÓSITO CENTRAL ---
+        ("TERCER_PARADERO",   "DEPOSITO",           500,  2.5, "Acceso Tercer Paradero"),
+        ("CUARTO_PARADERO",   "DEPOSITO",           450,  2.5, "Acceso Cuarto Paradero"),
+        
+        # --- CONEXIONES DEL CIRCUITO DE AVIONES / COSTANERA ---
+        ("SEXTO_PARADERO",    "MIRADOR_AVIONES",    400,  2.0, "Bajada Mirador"),
+        ("MIRADOR_AVIONES",   "AV_COSTANERA",       450,  2.0, "Av. Costanera"),
+        ("PARADERO_JOYAS",    "AV_COSTANERA",       350,  1.5, "Calle Los Nogales"),
+        ("PARADERO_JOYAS",    "PUENTE_TUPAC",       750,  3.5, "Av. Costanera Este"),
+        ("AV_COSTANERA",      "PUENTE_TUPAC",       600,  3.0, "Eje Costanera"),
+        
+        # --- EXTREMO ESTE (Enaco, Tupac Amaru, Cachimayo) ---
+        ("SEPTIMO_PARADERO",  "ENACO",              500,  2.5, "Av. de la Cultura Este"),
+        ("ENACO",             "CACHIMAYO",          700,  3.5, "Carretera Cachimayo"),
+        ("PUENTE_TUPAC",    "URB_TUPAC",          450,  2.0, "Av. Tupac Amaru"),
+        ("URB_TUPAC",         "CACHIMAYO",          600,  3.0, "Acceso Cachimayo"),
+        ]
     aristas = []
     for origen, destino, dist, tiempo, calle in datos:
         aristas.append(Arista(
@@ -361,11 +377,32 @@ def crear_aristas() -> list[Arista]:
 # ══════════════════════════════════════════════════════════════
 
 ZONAS = {
-    "NORTE":  {"DEPOSITO", "AV_CULTURA", "TTIO", "AV_EJÉRCITO", "URB_MAG"},
-    "CENTRO": {"PLAZA_SS", "MERCADO", "HOSP_SS", "KORIPATA",
-               "CLORINDA", "TTIKA", "LARAPA"},
-    "SUR":    {"VILLA_SOL", "ANGOSTURA", "WIMPILLAY", "SANTA_ANA",
-               "PATA_PATA", "CACHIMAYO", "PASO_SUYO", "KENAJPATA"},
+    "OESTE": [
+        "KARI_GRANDE", 
+        "PRIMER_PARADERO", 
+        "DIEGO_QUISPE", 
+        "CAMPINA_ALTA", 
+        "SEGUNDO_PARADERO",
+        "PLAZA_SS", 
+        "CEMENTERIO"
+    ],
+    "CENTRO": [
+        "TERCER_PARADERO", 
+        "CUARTO_PARADERO", 
+        "QUINTO_PARADERO", 
+        "SEXTO_PARADERO", 
+        "DEPOSITO"
+    ],
+    "ESTE": [
+        "MIRADOR_AVIONES", 
+        "AV_COSTANERA", 
+        "PARADERO_JOYAS", 
+        "PUENTE_TUPAC", 
+        "ENACO", 
+        "URB_TUPAC",
+        "SEPTIMO_PARADERO",
+        "CACHIMAYO"
+    ]
 }
 
 

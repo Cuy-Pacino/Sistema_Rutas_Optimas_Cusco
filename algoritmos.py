@@ -80,7 +80,7 @@ def _particion(arr: list, lo: int, hi: int, clave: str) -> int:
 
 # ══════════════════════════════════════════════════════════════
 #  HEAP SORT — O(n log n)
-#  Cola de prioridad de pedidos: extrae siempre el más urgente.
+#  Cola de prioridad de pedidos: extrae siempre el menos urgente.
 # ══════════════════════════════════════════════════════════════
 
 def heap_sort_pedidos(pedidos: list[Pedido]) -> list[Pedido]:
@@ -92,9 +92,9 @@ def heap_sort_pedidos(pedidos: list[Pedido]) -> list[Pedido]:
     arr = list(pedidos)
     n = len(arr)
 
-    # Construir max-heap (usamos negativo para simular min → más urgente primero)
+    # Construir max-heap (usamos negativo para simular min → menos urgente primero)
     def clave(p: Pedido) -> tuple:
-        return (-p.prioridad.value, -p.hora_registro)   # negado → max-heap da urgentes
+        return (-p.prioridad.value, -p.hora_registro)
 
     # heapify manual
     heap: list[tuple] = [(clave(p), i, p) for i, p in enumerate(arr)]  # O(n) — construye lista
@@ -104,7 +104,7 @@ def heap_sort_pedidos(pedidos: list[Pedido]) -> list[Pedido]:
     while heap:                                                          # n iteraciones
         _, _, pedido = heapq.heappop(heap)                              # O(log n) — extracción
         resultado.append(pedido)
-    # El heap da el de menor clave primero; como negamos → urgentes primero
+
     return resultado
 # --- Análisis Heap Sort ---
 # heapify: O(n)  +  n × heappop: O(log n)  →  O(n) + O(n log n)  =  O(n log n)

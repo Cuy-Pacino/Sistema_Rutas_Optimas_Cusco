@@ -12,6 +12,9 @@ Algoritmos: Mochila Fraccionaria, Selección de Actividades,
             Greedy, Divide y Vencerás, Backtracking
 """
 
+import ctypes
+ctypes.windll.shcore.SetProcessDpiAwareness(1)
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import time
@@ -43,7 +46,7 @@ PURPLE    = "#9b59b6"
 TEXT_MAIN = "#eaeaea"
 TEXT_DIM  = "#7f8c8d"
 
-ZONA_COLORES = {"NORTE": "#3498db", "CENTRO": "#f5a623", "SUR": "#2ecc71"}
+ZONA_COLORES = {"OESTE": "#3498db", "CENTRO": "#f5a623", "ESTE": "#2ecc71"}
 
 # Paleta de coloreo de grafo (hasta 8 colores)
 COLOREO_PALETA = [
@@ -71,7 +74,13 @@ class App(tk.Tk):
         self.configure(bg=BG_DARK)
         self.state("zoomed")
         self.resizable(True, True)
-
+        
+        self._coloreo_activo = False      
+        self._par_cercano_activo = None
+        self._rutas_activas = None
+        self._colores_rutas_activos = None
+        
+        
         self.grafo         = GrafoSanSebastian()
         self.pedidos: list[Pedido]       = []
         self.repartidores: list[Repartidor] = self._crear_repartidores()
@@ -99,14 +108,13 @@ class App(tk.Tk):
 
     def _cargar_demo(self):
         demos = [
-            ("P001","Farmacia San Blas","HOSP_SS",  1.5, 3.0, 45.0,Prioridad.URGENTE),
-            ("P002","Rest. El Fogón",  "MERCADO",   3.0, 8.0, 30.0,Prioridad.ALTA),
-            ("P003","Ferretería Larapa","LARAPA",   8.0,15.0, 80.0,Prioridad.NORMAL),
-            ("P004","Tienda Villa Sol","VILLA_SOL", 2.0, 5.0, 25.0,Prioridad.NORMAL),
-            ("P005","Bodega Angostura","ANGOSTURA", 5.0,10.0, 60.0,Prioridad.BAJA),
-            ("P006","Clínica Koripata","KORIPATA",  0.5, 1.0, 90.0,Prioridad.URGENTE),
-            ("P007","Librería Clorinda","CLORINDA", 1.0, 2.0, 20.0,Prioridad.BAJA),
-            ("P008","Mercado Santa Ana","SANTA_ANA",4.0, 9.0, 50.0,Prioridad.ALTA),
+            ("P001", "Farmacia San Sebastián", "PLAZA_SS",        1.5, 3.0,  45.0, Prioridad.URGENTE),
+            ("P003", "Accesorios Cachimayo",  "CACHIMAYO",       8.0, 15.0, 80.0, Prioridad.NORMAL),
+            ("P004", "Parque",      "ENACO",           2.0, 5.0,  25.0, Prioridad.NORMAL),
+            ("P005", "Urb. Tupac Amaru",      "URB_TUPAC",       5.0, 10.0, 60.0, Prioridad.BAJA),
+            ("P006", "Mirador de Kari",     "KARI_GRANDE",     0.5, 1.0,  90.0, Prioridad.URGENTE),
+            ("P007", "Condominio Campiña",    "CAMPINA_ALTA",    1.0, 2.0,  20.0, Prioridad.BAJA),
+            ("P008", "Eje Aviones",           "MIRADOR_AVIONES", 4.0, 9.0,  50.0, Prioridad.ALTA),
         ]
         for id_,cli,nodo,peso,vol,val,pri in demos:
             self.pedidos.append(Pedido(
@@ -533,6 +541,18 @@ class App(tk.Tk):
 
     def _dibujar_grafo(self, rutas: list[list[str]] = None,
                         colores: list[str] = None):
+        
+        # === CONTROL DE ESTADO PARA ZOOM Y PANEO ===
+        if rutas is not None:
+            self._rutas_activas = rutas
+            self._colores_rutas_activos = colores
+        else:
+            rutas = self._rutas_activas
+            colores = self._colores_rutas_activos
+
+        c = self.canvas
+        c.delete("all")
+        
         c = self.canvas
         c.delete("all")
 
@@ -611,6 +631,31 @@ class App(tk.Tk):
                         text=nid[:6], fill=TEXT_MAIN,
                         font=("Courier New", max(5, int(6*self._zoom)), "bold"))
 
+        if self._par_cercano_activo:
+            a, b, dist = self._par_cercano_activo
+            na_obj = self.grafo.nodos.get(a)
+            nb_obj = self.grafo.nodos.get(b)
+            
+            if na_obj and nb_obj:
+                # Transformamos las coordenadas estáticas a la vista con zoom actual
+                ax_zoom, ay_zoom = tx(na_obj.x), ty(na_obj.y)
+                bx_zoom, by_zoom = tx(nb_obj.x), ty(nb_obj.y)
+                
+
+                c.create_line(
+                    ax_zoom, ay_zoom, bx_zoom, by_zoom,
+                    fill=RED_VIF, width=max(2, int(4 * self._zoom)), dash=(6, 3)
+                )
+                
+
+                c.create_text(
+                    (ax_zoom + bx_zoom) // 2, ((ay_zoom + by_zoom) // 2) - 12,
+                    text=f"Par más cercano ({dist:.0f}px)",
+                    fill=RED_VIF, font=("Courier New", max(6, int(7 * self._zoom)), "bold")
+                )
+
+        # Leyenda (esto ya estaba en tu código...)
+        ly = 22
         # Leyenda
         ly = 22
         for zona, color in ZONA_COLORES.items():
@@ -650,7 +695,13 @@ class App(tk.Tk):
     def _limpiar_pedidos(self):
         if messagebox.askyesno("Confirmar","¿Limpiar todos los pedidos?"):
             self.pedidos.clear()
-            self._actualizar_tabla(); self._dibujar_grafo()
+            # Limpiamos el historial de rutas y par cercano
+            self._rutas_activas = None
+            self._colores_rutas_activos = None
+            self._par_cercano_activo = None
+            
+            self._actualizar_tabla()
+            self._dibujar_grafo()
 
     def _ordenar(self, metodo: str):
         antes = [p.id for p in self.pedidos]
@@ -906,16 +957,9 @@ class App(tk.Tk):
             "Uso: punto de partida óptimo para el repartidor.",
         ]
         self._escribir_grafo("\n".join(lineas))
-        # Resaltar el par en el canvas
+
+        self._par_cercano_activo = (a, b, dist)
         self._dibujar_grafo()
-        na_obj = self.grafo.nodos[a]; nb_obj = self.grafo.nodos[b]
-        self.canvas.create_line(
-            na_obj.x,na_obj.y,nb_obj.x,nb_obj.y,
-            fill=RED_VIF,width=4,dash=(6,3))
-        self.canvas.create_text(
-            (na_obj.x+nb_obj.x)//2,(na_obj.y+nb_obj.y)//2-10,
-            text=f"Par más cercano ({dist:.0f}px)",
-            fill=RED_VIF,font=("Courier New",7,"bold"))
 
     def _run_merge_nodos(self):
         ordenados = self.grafo.nodos_ordenados_por("x")
