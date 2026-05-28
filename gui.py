@@ -3,13 +3,13 @@ gui.py — Interfaz Gráfica del Sistema de Rutas Óptimas
 San Sebastián, Cusco — Programación III UNSAAC 2026
 
 La GUI expone visualmente TODOS los algoritmos:
-  Modelos   : Bubble Sort, Shell Sort, Counting Sort,
-              Búsqueda Lineal, Búsqueda Binaria, Huffman
-  Grafo     : Merge Sort, Quick Sort (grados), Par de Puntos,
-              Coloreo de Grafos, Exponenciación Rápida
-  Algoritmos: Mochila Fraccionaria, Selección de Actividades,
-              Quick Sort, Heap Sort, Radix Sort, Subset Sum,
-              Greedy, Divide y Vencerás, Backtracking
+Modelos   : Bubble Sort, Shell Sort, Counting Sort,
+            Búsqueda Lineal, Búsqueda Binaria, Huffman
+Grafo     : Merge Sort, Quick Sort (grados), Par de Puntos,
+            Coloreo de Grafos, Exponenciación Rápida
+Algoritmos: Mochila Fraccionaria, Selección de Actividades,
+            Quick Sort, Heap Sort, Radix Sort, Subset Sum,
+            Greedy, Divide y Vencerás, Backtracking
 """
 
 import tkinter as tk
@@ -20,9 +20,9 @@ from modelos import ResultadoAlgoritmo
 
 from grafo_san_sebastian import GrafoSanSebastian, ZONAS
 from modelos import (Pedido, Repartidor, Prioridad, PRIORIDAD_LABEL,
-                     bubble_sort, shell_sort, counting_sort_prioridad,
-                     busqueda_lineal_cliente, busqueda_lineal_sector,
-                     busqueda_binaria_id, demo_huffman, huffman_comprimir)
+                    bubble_sort, shell_sort, counting_sort_prioridad,
+                    busqueda_lineal_cliente, busqueda_lineal_sector,
+                    busqueda_binaria_id, demo_huffman, huffman_comprimir)
 from algoritmos import (
     quick_sort_pedidos, heap_sort_pedidos, radix_sort_por_valor,
     seleccion_actividades, mochila_fraccionaria,

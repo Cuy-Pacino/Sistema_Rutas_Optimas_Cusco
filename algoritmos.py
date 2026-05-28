@@ -46,34 +46,36 @@ def quick_sort_pedidos(pedidos: list[Pedido],
 
 def _ks_key(p: Pedido, clave: str) -> float:
     if clave == "ratio":
-        return -(p.valor / p.peso) if p.peso > 0 else 0.0
+        return -(p.valor / p.peso) if p.peso > 0 else 0.0   # O(1) — aritmética simple
     if clave == "prioridad":
-        return float(p.prioridad.value)
+        return float(p.prioridad.value)                       # O(1) — acceso a atributo
     if clave == "valor":
-        return -p.valor
+        return -p.valor                                       # O(1) — negación
     return 0.0
 
 
 def _qs(arr: list, lo: int, hi: int, clave: str):
-    if lo < hi:
-        p = _particion(arr, lo, hi, clave)
-        _qs(arr, lo,     p - 1, clave)
-        _qs(arr, p + 1,  hi,    clave)
+    if lo < hi:                                               # O(1) — comparación de índices
+        p = _particion(arr, lo, hi, clave)                   # O(n) cada llamada
+        _qs(arr, lo,     p - 1, clave)                       # T(k)   subproblema izquierdo
+        _qs(arr, p + 1,  hi,    clave)                       # T(n-k) subproblema derecho
 
 
 def _particion(arr: list, lo: int, hi: int, clave: str) -> int:
     """Pivote = elemento central (mediana de 3 implícita)."""
     mid = (lo + hi) // 2
-    # Colocar pivote al final
-    arr[mid], arr[hi] = arr[hi], arr[mid]
+    arr[mid], arr[hi] = arr[hi], arr[mid]                    # O(1) — intercambio
     pivot = _ks_key(arr[hi], clave)
     i = lo - 1
-    for j in range(lo, hi):
-        if _ks_key(arr[j], clave) <= pivot:
+    for j in range(lo, hi):                                  # O(n) — recorre el subarreglo
+        if _ks_key(arr[j], clave) <= pivot:                  # O(1) — comparación
             i += 1
-            arr[i], arr[j] = arr[j], arr[i]
-    arr[i + 1], arr[hi] = arr[hi], arr[i + 1]
+            arr[i], arr[j] = arr[j], arr[i]                 # O(1) — intercambio
+    arr[i + 1], arr[hi] = arr[hi], arr[i + 1]               # O(1) — coloca pivote final
     return i + 1
+# --- Análisis Quick Sort ---
+# T(n) = 2·T(n/2) + O(n)  →  Maestro caso 2  →  O(n log n) promedio
+# Peor caso (pivote mínimo/máximo siempre): T(n) = T(n-1) + O(n)  →  O(n²)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -95,15 +97,17 @@ def heap_sort_pedidos(pedidos: list[Pedido]) -> list[Pedido]:
         return (-p.prioridad.value, -p.hora_registro)   # negado → max-heap da urgentes
 
     # heapify manual
-    heap: list[tuple] = [(clave(p), i, p) for i, p in enumerate(arr)]
-    heapq.heapify(heap)
+    heap: list[tuple] = [(clave(p), i, p) for i, p in enumerate(arr)]  # O(n) — construye lista
+    heapq.heapify(heap)                                                  # O(n) — heapify lineal
 
     resultado = []
-    while heap:
-        _, _, pedido = heapq.heappop(heap)
+    while heap:                                                          # n iteraciones
+        _, _, pedido = heapq.heappop(heap)                              # O(log n) — extracción
         resultado.append(pedido)
     # El heap da el de menor clave primero; como negamos → urgentes primero
     return resultado
+# --- Análisis Heap Sort ---
+# heapify: O(n)  +  n × heappop: O(log n)  →  O(n) + O(n log n)  =  O(n log n)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -124,35 +128,38 @@ def radix_sort_por_valor(pedidos: list[Pedido]) -> list[Pedido]:
 
     arr = list(pedidos)
     # Convertir a enteros (×10 para 1 decimal)
-    max_val = int(max(p.valor * 10 for p in arr)) + 1
+    max_val = int(max(p.valor * 10 for p in arr)) + 1      # O(n) — recorre para hallar máximo
 
     exp = 1
-    while max_val // exp > 0:
-        arr = _counting_pass(arr, exp)
+    while max_val // exp > 0:                               # k iteraciones (k = dígitos de max_val)
+        arr = _counting_pass(arr, exp)                      # O(n) por pasada
         exp *= 10
 
-    return arr[::-1]      # invertir → mayor primero
+    return arr[::-1]      # invertir → mayor primero       # O(n) — copia inversa
+# --- Análisis Radix Sort ---
+# k pasadas × O(n) por pasada  →  O(n·k), k = ⌊log₁₀(max_val)⌋ + 1  ≈  constante pequeña
 
 
 def _counting_pass(arr: list[Pedido], exp: int) -> list[Pedido]:
     """Un paso de counting sort por el dígito en posición exp."""
     n = len(arr)
     salida  = [None] * n
-    conteo  = [0] * 10
+    conteo  = [0] * 10                                      # O(1) — tamaño fijo (base 10)
 
-    for p in arr:
+    for p in arr:                                           # O(n) — cuenta frecuencias
         digito = (int(p.valor * 10) // exp) % 10
         conteo[digito] += 1
 
-    for i in range(1, 10):
+    for i in range(1, 10):                                  # O(1) — acumulado, solo 10 cubetas
         conteo[i] += conteo[i - 1]
 
-    for p in reversed(arr):
+    for p in reversed(arr):                                 # O(n) — coloca elementos estable
         digito = (int(p.valor * 10) // exp) % 10
         conteo[digito] -= 1
         salida[conteo[digito]] = p
 
     return salida
+# _counting_pass: O(n + 10) = O(n) por pasada
 
 
 # ══════════════════════════════════════════════════════════════
@@ -183,34 +190,37 @@ def seleccion_actividades(pedidos: list[Pedido],
         return []
 
     # Mapeo id → pedido
-    mapa = {p.id: p for p in pedidos}
+    mapa = {p.id: p for p in pedidos}                       # O(n) — construye diccionario
 
     # Ordenar por hora de finalización (Quick Sort)
-    act_sorted = quick_sort_actividades(list(ventanas))
+    act_sorted = quick_sort_actividades(list(ventanas))      # O(n log n) — Quick Sort
 
     seleccionados: list[Pedido] = []
     ultimo_fin = -1.0
 
-    for pid, inicio, fin in act_sorted:
-        if inicio >= ultimo_fin:          # no hay solapamiento
-            if pid in mapa:
+    for pid, inicio, fin in act_sorted:                      # O(n) — recorrido lineal
+        if inicio >= ultimo_fin:          # no hay solapamiento  # O(1) — comparación
+            if pid in mapa:                                  # O(1) — lookup en dict
                 seleccionados.append(mapa[pid])
                 ultimo_fin = fin
 
     return seleccionados
+# --- Análisis Selección de Actividades ---
+# O(n) dict + O(n log n) sort + O(n) barrido  →  dominante: O(n log n)
 
 
 def quick_sort_actividades(acts: list[tuple]) -> list[tuple]:
     """Quick Sort de actividades por hora de fin (índice 2)."""
-    if len(acts) <= 1:
+    if len(acts) <= 1:                                       # O(1) — caso base
         return acts
     pivot = acts[len(acts) // 2][2]
-    menores = [a for a in acts if a[2] <  pivot]
-    iguales = [a for a in acts if a[2] == pivot]
-    mayores = [a for a in acts if a[2] >  pivot]
+    menores = [a for a in acts if a[2] <  pivot]            # O(n) — partición con comprensión
+    iguales = [a for a in acts if a[2] == pivot]            # O(n)
+    mayores = [a for a in acts if a[2] >  pivot]            # O(n)
     return (quick_sort_actividades(menores) +
             iguales +
             quick_sort_actividades(mayores))
+# T(n) = 2·T(n/2) + O(n)  →  O(n log n) promedio
 
 
 # ══════════════════════════════════════════════════════════════
@@ -255,7 +265,7 @@ def mochila_fraccionaria(repartidor: Repartidor,
         )
 
     # 1. Calcular ratios y ordenar de mayor a menor (Quick Sort)
-    ordenados = quick_sort_pedidos(disponibles, clave="ratio")
+    ordenados = quick_sort_pedidos(disponibles, clave="ratio")  # O(n log n)
 
     # 2. Llenar la mochila
     capacidad_restante = repartidor.capacidad_disponible_peso
@@ -263,17 +273,17 @@ def mochila_fraccionaria(repartidor: Repartidor,
     fracciones:    list[float]       = []   # 1.0 = completo, 0.3 = 30%
     valor_total = 0.0
 
-    for pedido in ordenados:
-        if capacidad_restante <= 0:
+    for pedido in ordenados:                                    # O(n) — recorrido lineal
+        if capacidad_restante <= 0:                             # O(1) — comparación
             break
-        if pedido.peso <= capacidad_restante:
+        if pedido.peso <= capacidad_restante:                   # O(1) — comparación
             seleccionados.append(pedido)
             fracciones.append(1.0)
             valor_total           += pedido.valor
             capacidad_restante    -= pedido.peso
         else:
             # Fracción
-            fraccion = capacidad_restante / pedido.peso
+            fraccion = capacidad_restante / pedido.peso         # O(1) — división
             seleccionados.append(pedido)
             fracciones.append(fraccion)
             valor_total        += pedido.valor * fraccion
@@ -281,22 +291,25 @@ def mochila_fraccionaria(repartidor: Repartidor,
 
     # 3. Construir ruta Dijkstra para pedidos completos
     #    (los fraccionados se incluyen si fracción > 0.5)
-    pedidos_ruta = [p for p, f in zip(seleccionados, fracciones) if f > 0.0]
+    pedidos_ruta = [p for p, f in zip(seleccionados, fracciones) if f > 0.0]  # O(n)
     # Ordenar por prioridad antes de trazar la ruta
-    pedidos_ruta = counting_sort_prioridad(pedidos_ruta)
+    pedidos_ruta = counting_sort_prioridad(pedidos_ruta)        # O(n) — counting sort
 
     pos = repartidor.nodo_actual
     ruta_nodos  = [pos]
     dist_total  = 0.0
     tiempo_total = 0.0
 
-    for pedido in pedidos_ruta:
-        r, d = grafo.dijkstra(pos, pedido.nodo_destino)
+    for pedido in pedidos_ruta:                                 # O(n) iteraciones
+        r, d = grafo.dijkstra(pos, pedido.nodo_destino)        # O((V+E) log V) por llamada
         if r:
             ruta_nodos.extend(r[1:])
             dist_total   += d
             tiempo_total += d / 416.0
             pos = pedido.nodo_destino
+# --- Análisis Mochila Fraccionaria ---
+# O(n log n) sort + O(n) selección + O(n·(V+E) log V) Dijkstra
+# Dominante: O(n·(V+E) log V) si el grafo es grande; O(n log n) sin rutas
 
     if pos != "DEPOSITO":
         r_ret, d_ret = grafo.dijkstra(pos, "DEPOSITO")
@@ -353,15 +366,15 @@ def subset_sum_carga_exacta(pedidos: list[Pedido],
     n = len(pedidos)
 
     # dp[i][w] = True si con los primeros i pedidos se puede alcanzar peso w
-    dp = [[False] * (W + 1) for _ in range(n + 1)]
+    dp = [[False] * (W + 1) for _ in range(n + 1)]             # O(n·W) — tabla DP
     dp[0][0] = True
 
-    for i in range(1, n + 1):
+    for i in range(1, n + 1):                                   # n filas
         wi = pesos[i - 1]
-        for w in range(W + 1):
-            dp[i][w] = dp[i - 1][w]
+        for w in range(W + 1):                                  # W+1 columnas → O(n·W) total
+            dp[i][w] = dp[i - 1][w]                             # O(1) — sin tomar el item
             if wi <= w:
-                dp[i][w] = dp[i][w] or dp[i - 1][w - wi]
+                dp[i][w] = dp[i][w] or dp[i - 1][w - wi]       # O(1) — tomando el item
 
     if not dp[n][W]:
         return False, []
@@ -369,12 +382,15 @@ def subset_sum_carga_exacta(pedidos: list[Pedido],
     # Reconstruir subconjunto
     subconjunto = []
     w = W
-    for i in range(n, 0, -1):
+    for i in range(n, 0, -1):                                   # O(n) — traza hacia atrás
         if not dp[i - 1][w]:
             subconjunto.append(pedidos[i - 1])
             w -= pesos[i - 1]
 
     return True, subconjunto
+# --- Análisis Subset Sum DP ---
+# Llenado tabla: O(n·W)  |  Reconstrucción: O(n)  |  Espacio: O(n·W)
+# W = capacidad × FACTOR; si W es grande, puede ser costoso (pseudo-polinomial)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -394,7 +410,7 @@ def greedy_vecino_cercano(grafo: GrafoSanSebastian,
     # Heap Sort para atender urgentes primero
     pendientes = heap_sort_pedidos(
         [p for p in pedidos if not p.entregado and repartidor.puede_tomar(p)]
-    )
+    )                                                            # O(n log n) — Heap Sort
 
     ruta_nodos    = [repartidor.nodo_actual]
     pedidos_ruta  = []
@@ -403,16 +419,16 @@ def greedy_vecino_cercano(grafo: GrafoSanSebastian,
     pos           = repartidor.nodo_actual
     visitados     = set()
 
-    while pendientes:
+    while pendientes:                                            # n iteraciones externas
         mejor       = None
         mejor_dist  = float("inf")
         mejor_tramo = []
 
-        for pedido in pendientes:
-            if pedido.nodo_destino in visitados:
+        for pedido in pendientes:                               # O(n) — busca el más cercano
+            if pedido.nodo_destino in visitados:                # O(1) — lookup en set
                 continue
-            ruta_p, dist_p = grafo.dijkstra(pos, pedido.nodo_destino)
-            if dist_p < mejor_dist:
+            ruta_p, dist_p = grafo.dijkstra(pos, pedido.nodo_destino)  # O((V+E) log V)
+            if dist_p < mejor_dist:                             # O(1) — comparación
                 mejor_dist  = dist_p
                 mejor       = pedido
                 mejor_tramo = ruta_p
@@ -426,7 +442,10 @@ def greedy_vecino_cercano(grafo: GrafoSanSebastian,
         pedidos_ruta.append(mejor)
         visitados.add(mejor.nodo_destino)
         pos = mejor.nodo_destino
-        pendientes.remove(mejor)
+        pendientes.remove(mejor)                                # O(n) — lista sin indexar
+# --- Análisis Greedy Vecino Más Cercano ---
+# n iteraciones × O(n) búsqueda de mínimo  →  O(n²) sin contar Dijkstra
+# Con Dijkstra: O(n² · (V+E) log V); sin grafo complejo se simplifica a O(n²)
 
     if pos != "DEPOSITO":
         r_ret, d_ret = grafo.dijkstra(pos, "DEPOSITO")
@@ -508,19 +527,22 @@ def divide_y_venceras(grafo: GrafoSanSebastian,
     t0 = time.perf_counter()
 
     pedidos_por_zona: dict[str, list[Pedido]] = {z: [] for z in ZONAS}
-    for pedido in pedidos:
-        pedidos_por_zona[_asignar_zona(pedido.nodo_destino)].append(pedido)
+    for pedido in pedidos:                                      # O(n) — clasifica cada pedido
+        pedidos_por_zona[_asignar_zona(pedido.nodo_destino)].append(pedido)  # O(|zona|) lookup
 
     resultados = []
-    for i, zona in enumerate(ZONAS):
+    for i, zona in enumerate(ZONAS):                           # O(Z) zonas, Z constante
         if not pedidos_por_zona[zona]:
             continue
         rep   = repartidores[i % len(repartidores)]
         t_z0  = time.perf_counter()
 
         # Shell Sort dentro de cada zona por prioridad
-        zona_ordenada = shell_sort(pedidos_por_zona[zona], "prioridad")
-        ruta, dist, tiempo = _resolver_zona(grafo, "DEPOSITO", zona_ordenada)
+        zona_ordenada = shell_sort(pedidos_por_zona[zona], "prioridad")  # O(k log²k), k = pedidos zona
+        ruta, dist, tiempo = _resolver_zona(grafo, "DEPOSITO", zona_ordenada)  # O(k²) greedy local
+# --- Análisis Divide y Vencerás ---
+# División: O(n)  |  Por zona: O(k log²k) sort + O(k² · (V+E) log V) Dijkstra
+# Total: O(n) + Z · O(k²) = O(n log n) asintótico si k ≈ n/Z  →  O(n log n)
 
         if ruta[-1] != "DEPOSITO":
             r_ret, d_ret = grafo.dijkstra(ruta[-1], "DEPOSITO")
@@ -576,22 +598,26 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
 
     def backtrack(nodo: str, ruta: list[str],
                   dist_acum: float, visitados: set[str]):
-        if len(todas_rutas) >= max_rutas:
+        if len(todas_rutas) >= max_rutas:                       # O(1) — límite de exploración
             return
-        if nodo == fin:
+        if nodo == fin:                                         # O(1) — caso base
             todas_rutas.append(list(ruta))
             todas_dists.append(dist_acum)
             return
         # Poda por distancia
-        if todas_dists and dist_acum >= min(todas_dists) * 1.5:
+        if todas_dists and dist_acum >= min(todas_dists) * 1.5: # O(rutas) — poda de rama
             return
-        for vecino, dist, _, _ in grafo.vecinos(nodo):
-            if vecino not in visitados:
+        for vecino, dist, _, _ in grafo.vecinos(nodo):         # O(grado) — expansión de vecinos
+            if vecino not in visitados:                         # O(1) — lookup en set
                 visitados.add(vecino)
                 ruta.append(vecino)
-                backtrack(vecino, ruta, dist_acum + dist, visitados)
+                backtrack(vecino, ruta, dist_acum + dist, visitados)  # recursión
                 ruta.pop()
                 visitados.remove(vecino)
+# --- Análisis Backtracking ---
+# Sin poda: O(V!) — explora todas las permutaciones de nodos
+# Con poda 1.5×mejor: O(b^d), b = factor ramificación, d = profundidad media
+# En la práctica mucho menor que O(V!) gracias al límite max_rutas y la poda
 
     backtrack(inicio, [inicio], 0.0, {inicio})
 

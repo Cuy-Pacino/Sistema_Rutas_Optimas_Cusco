@@ -45,12 +45,14 @@ def expo_rapida(base: float, exp: int) -> float:
     """
     resultado = 1.0
     base = float(base)
-    while exp > 0:
-        if exp % 2 == 1:          # bit menos significativo = 1
-            resultado *= base
-        base *= base
-        exp //= 2
+    while exp > 0:                            # O(log exp) iteraciones — divide exp a la mitad
+        if exp % 2 == 1:          # bit menos significativo = 1  # O(1) — bit check
+            resultado *= base                                     # O(1) — multiplicación
+        base *= base                                              # O(1) — cuadrado
+        exp //= 2                                                 # O(1) — desplazamiento
     return resultado
+# --- Análisis Exponenciación Rápida ---
+# Cada iteración divide exp entre 2  →  T(e) = T(e/2) + O(1)  →  O(log e)
 
 
 def penalizacion_distancia(distancia_m: float,
@@ -79,13 +81,14 @@ def merge_sort_nodos(nodos: list[Nodo],
     clave: 'x' | 'y' | 'lat' | 'lon'
     Complejidad: O(n log n) tiempo, O(n) espacio.
     """
-    if len(nodos) <= 1:
+    if len(nodos) <= 1:                                        # O(1) — caso base
         return nodos
 
-    mid = len(nodos) // 2
-    izq = merge_sort_nodos(nodos[:mid],  clave)
-    der = merge_sort_nodos(nodos[mid:],  clave)
-    return _merge(izq, der, clave)
+    mid = len(nodos) // 2                                     # O(1) — punto medio
+    izq = merge_sort_nodos(nodos[:mid],  clave)               # T(n/2) — subproblema izquierdo
+    der = merge_sort_nodos(nodos[mid:],  clave)               # T(n/2) — subproblema derecho
+    return _merge(izq, der, clave)                            # O(n) — fusión
+# T(n) = 2·T(n/2) + O(n)  →  Maestro caso 2  →  O(n log n)
 
 
 def _merge(izq: list[Nodo], der: list[Nodo],
@@ -94,16 +97,17 @@ def _merge(izq: list[Nodo], der: list[Nodo],
     i = j = 0
 
     def val(n: Nodo) -> float:
-        return getattr(n, clave)
+        return getattr(n, clave)                               # O(1) — acceso a atributo
 
-    while i < len(izq) and j < len(der):
-        if val(izq[i]) <= val(der[j]):
+    while i < len(izq) and j < len(der):                      # O(n) — recorre ambas mitades
+        if val(izq[i]) <= val(der[j]):                        # O(1) — comparación
             resultado.append(izq[i]); i += 1
         else:
             resultado.append(der[j]); j += 1
-    resultado.extend(izq[i:])
+    resultado.extend(izq[i:])                                 # O(restante) — copia sobrantes
     resultado.extend(der[j:])
     return resultado
+# _merge: O(|izq| + |der|) = O(n)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -122,13 +126,14 @@ def _closest_fuerza_bruta(pts: list[Nodo]) -> tuple[float, Nodo, Nodo]:
     """Fuerza bruta O(n²) para n ≤ 3."""
     min_d = float("inf")
     p1 = p2 = pts[0]
-    for i in range(len(pts)):
-        for j in range(i + 1, len(pts)):
-            d = _dist_euclidea(pts[i], pts[j])
-            if d < min_d:
+    for i in range(len(pts)):                                  # O(n) — fila exterior
+        for j in range(i + 1, len(pts)):                      # O(n) — fila interior → O(n²)
+            d = _dist_euclidea(pts[i], pts[j])                # O(1) — distancia euclidea
+            if d < min_d:                                     # O(1) — comparación
                 min_d = d
                 p1, p2 = pts[i], pts[j]
     return min_d, p1, p2
+# Solo se llama con n ≤ 3  →  O(1) prácticamente (caso base constante)
 
 
 def _closest_franja(franja: list[Nodo], d: float,
@@ -136,19 +141,20 @@ def _closest_franja(franja: list[Nodo], d: float,
                     ) -> tuple[float, Nodo, Nodo]:
     """Revisa la franja central (ordenada por y) en O(n)."""
     # Merge sort la franja por y
-    franja_y = merge_sort_nodos(franja, "y")
+    franja_y = merge_sort_nodos(franja, "y")                  # O(n log n) — sort de franja
     min_d = d
 
-    for i in range(len(franja_y)):
+    for i in range(len(franja_y)):                            # O(n) — recorre franja
         j = i + 1
         while j < len(franja_y) and \
-              (franja_y[j].y - franja_y[i].y) < min_d:
-            dist = _dist_euclidea(franja_y[i], franja_y[j])
-            if dist < min_d:
+              (franja_y[j].y - franja_y[i].y) < min_d:       # máx 7 iteraciones por propiedad geométrica
+            dist = _dist_euclidea(franja_y[i], franja_y[j])  # O(1)
+            if dist < min_d:                                  # O(1)
                 min_d = dist
                 best_p1, best_p2 = franja_y[i], franja_y[j]
             j += 1
     return min_d, best_p1, best_p2
+# Propiedad clave: cada punto compara con ≤ 7 vecinos  →  bucle interno O(1) amortizado  →  O(n)
 
 
 def _closest_rec(pts_x: list[Nodo]
@@ -158,23 +164,25 @@ def _closest_rec(pts_x: list[Nodo]
     pts_x debe estar ordenado por coordenada x (Merge Sort).
     """
     n = len(pts_x)
-    if n <= 3:
+    if n <= 3:                                                 # O(1) — caso base (≤3 puntos)
         return _closest_fuerza_bruta(pts_x)
 
-    mid = n // 2
+    mid = n // 2                                              # O(1) — divide
     mitad_x = pts_x[mid].x
 
-    izq_res = _closest_rec(pts_x[:mid])
-    der_res = _closest_rec(pts_x[mid:])
+    izq_res = _closest_rec(pts_x[:mid])                      # T(n/2) — mitad izquierda
+    der_res = _closest_rec(pts_x[mid:])                      # T(n/2) — mitad derecha
 
-    if izq_res[0] < der_res[0]:
+    if izq_res[0] < der_res[0]:                              # O(1) — elige el menor
         d, p1, p2 = izq_res
     else:
         d, p1, p2 = der_res
 
     # Franja de ancho 2d alrededor de la línea media
-    franja = [p for p in pts_x if abs(p.x - mitad_x) < d]
+    franja = [p for p in pts_x if abs(p.x - mitad_x) < d]   # O(n) — filtra franja
     return _closest_franja(franja, d, p1, p2)
+# --- Análisis Par de Puntos Más Cercanos ---
+# T(n) = 2·T(n/2) + O(n)  →  O(n log n)  (franja es O(n) por propiedad geométrica)
 
 
 def par_mas_cercano(nodos: list[Nodo]
@@ -217,28 +225,31 @@ def coloreo_grafos(adyacencia: dict[str, list]) -> dict[str, int]:
     Retorna: dict {nodo_id → color_int (0-based)}
     """
     # Calcular grados
-    grados = {v: len(vecinos) for v, vecinos in adyacencia.items()}
+    grados = {v: len(vecinos) for v, vecinos in adyacencia.items()}  # O(V) — grado de cada nodo
 
     # Quick Sort por grado descendente (implementación propia)
-    vertices = _quick_sort_por_grado(list(grados.keys()), grados)
+    vertices = _quick_sort_por_grado(list(grados.keys()), grados)    # O(V log V)
 
     color_asignado: dict[str, int] = {}
 
-    for v in vertices:
+    for v in vertices:                                               # O(V) — un color por vértice
         # Colores usados por los vecinos ya coloreados
-        vecinos_ids = set(vid for (vid, *_) in adyacencia.get(v, []))
+        vecinos_ids = set(vid for (vid, *_) in adyacencia.get(v, []))   # O(grado(v))
         colores_vecinos = {
             color_asignado[u]
             for u in vecinos_ids
-            if u in color_asignado
+            if u in color_asignado                                   # O(grado(v)) — vecinos coloreados
         }
         # Asignar el menor color no usado
         color = 0
-        while color in colores_vecinos:
+        while color in colores_vecinos:                              # O(Δ) — Δ = grado máximo
             color += 1
-        color_asignado[v] = color
+        color_asignado[v] = color                                   # O(1) — asignación
 
     return color_asignado
+# --- Análisis Coloreo Welsh-Powell ---
+# Sort: O(V log V)  +  bucle: Σ grado(v) = 2E → O(V + E)  +  while color: O(V·Δ) ≤ O(V²)
+# Total: O(V log V + V² + E) = O(V² + E)  (dominante V² cuando el grafo es denso)
 
 
 def _quick_sort_por_grado(vertices: list[str],
@@ -247,21 +258,22 @@ def _quick_sort_por_grado(vertices: list[str],
     Quick Sort descendente por grado — O(n log n) promedio.
     Pivote: elemento central.
     """
-    if len(vertices) <= 1:
+    if len(vertices) <= 1:                                           # O(1) — caso base
         return vertices
 
     pivot_idx = len(vertices) // 2
     pivot = vertices[pivot_idx]
     pivot_grado = grados[pivot]
 
-    menores  = [v for v in vertices if v != pivot and grados[v] <  pivot_grado]
-    iguales  = [v for v in vertices if grados[v] == pivot_grado]
-    mayores  = [v for v in vertices if v != pivot and grados[v] >  pivot_grado]
+    menores  = [v for v in vertices if v != pivot and grados[v] <  pivot_grado]  # O(n)
+    iguales  = [v for v in vertices if grados[v] == pivot_grado]                 # O(n)
+    mayores  = [v for v in vertices if v != pivot and grados[v] >  pivot_grado]  # O(n)
 
     # Orden descendente: mayores primero
     return (_quick_sort_por_grado(mayores, grados) +
             iguales +
             _quick_sort_por_grado(menores, grados))
+# T(n) = 2·T(n/2) + O(n)  →  O(n log n) promedio (n = V vértices)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -430,38 +442,41 @@ class GrafoSanSebastian:
         Retorna (ruta_ids, costo_total).
         Integra penalizacion_distancia (expo_rapida) por tramo.
         """
-        dist   = {n: float("inf") for n in self.nodos}
-        prev   = {n: None         for n in self.nodos}
-        tramos = {n: 0            for n in self.nodos}
+        dist   = {n: float("inf") for n in self.nodos}        # O(V) — inicialización
+        prev   = {n: None         for n in self.nodos}        # O(V)
+        tramos = {n: 0            for n in self.nodos}        # O(V)
         dist[inicio] = 0
-        heap = [(0.0, inicio)]
+        heap = [(0.0, inicio)]                                 # O(1) — heap inicial
 
-        while heap:
-            costo, u = heapq.heappop(heap)
-            if u == fin:
+        while heap:                                            # O((V+E) log V) total
+            costo, u = heapq.heappop(heap)                    # O(log V) — extracción
+            if u == fin:                                       # O(1) — destino alcanzado
                 break
-            if costo > dist[u]:
+            if costo > dist[u]:                               # O(1) — nodo obsoleto, poda
                 continue
-            for vecino, d, t, *_ in self.vecinos(u):
+            for vecino, d, t, *_ in self.vecinos(u):         # O(grado(u)) — expande vecinos
                 peso_base = t if usar_tiempo else d
                 # Penalización exponencial suave por tramos (expo_rapida)
                 peso = penalizacion_distancia(peso_base, 1.0001,
-                                              tramos[u] + 1)
+                                              tramos[u] + 1)  # O(log tramos) — expo_rapida
                 nueva = dist[u] + peso
-                if nueva < dist[vecino]:
+                if nueva < dist[vecino]:                       # O(1) — relajación
                     dist[vecino]   = nueva
                     prev[vecino]   = u
                     tramos[vecino] = tramos[u] + 1
-                    heapq.heappush(heap, (nueva, vecino))
+                    heapq.heappush(heap, (nueva, vecino))     # O(log V) — inserción en heap
 
         ruta, nodo = [], fin
-        while nodo is not None:
+        while nodo is not None:                               # O(V) — reconstruye camino
             ruta.append(nodo)
             nodo = prev[nodo]
-        ruta.reverse()
+        ruta.reverse()                                        # O(V) — invierte lista
         if not ruta or ruta[0] != inicio:
             return [], float("inf")
         return ruta, dist[fin]
+# --- Análisis Dijkstra ---
+# Cada arista se relaja una vez: O(E) relajaciones × O(log V) por heappush
+# Total: O((V + E) log V)  |  Espacio: O(V) para dist, prev, tramos
 
     # ── Par de Puntos Más Cercanos — O(n log n) ───────────────
 
@@ -517,4 +532,3 @@ class GrafoSanSebastian:
         clave: 'x' | 'y' | 'lat' | 'lon'
         """
         return merge_sort_nodos(list(self.nodos.values()), clave)
-

@@ -180,15 +180,18 @@ def bubble_sort(pedidos: list[Pedido], clave: str = "prioridad") -> list[Pedido]
 
     arr = list(pedidos)
     n = len(arr)
-    for i in range(n):
+    for i in range(n):                                          # n pasadas externas
         intercambiado = False
-        for j in range(0, n - i - 1):
-            if key(arr[j]) > key(arr[j + 1]):
-                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+        for j in range(0, n - i - 1):                          # O(n-i) comparaciones
+            if key(arr[j]) > key(arr[j + 1]):                  # O(1) — comparación de claves
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]       # O(1) — intercambio
                 intercambiado = True
-        if not intercambiado:       # optimización: ya ordenado
+        if not intercambiado:       # optimización: ya ordenado # O(1) — corta si no hubo cambios
             break
     return arr
+# --- Análisis Bubble Sort ---
+# Σ(i=0..n-1) (n-i-1) = n(n-1)/2 comparaciones  →  O(n²)
+# Mejor caso (ya ordenado, con flag): O(n)  |  Espacio: O(1)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -212,19 +215,23 @@ def shell_sort(pedidos: list[Pedido], clave: str = "prioridad") -> list[Pedido]:
 
     # Calcular gap inicial de Knuth
     gap = 1
-    while gap < n // 3:
+    while gap < n // 3:                                        # O(log₃ n) — halla gap inicial
         gap = gap * 3 + 1
 
-    while gap >= 1:
-        for i in range(gap, n):
+    while gap >= 1:                                            # O(log₃ n) valores de gap
+        for i in range(gap, n):                                # O(n) — barrido por gap
             temp = arr[i]
             j = i
-            while j >= gap and key(arr[j - gap]) > key(temp):
-                arr[j] = arr[j - gap]
+            while j >= gap and key(arr[j - gap]) > key(temp): # O(n/gap) desplazamientos
+                arr[j] = arr[j - gap]                          # O(1) — desplazamiento
                 j -= gap
-            arr[j] = temp
+            arr[j] = temp                                      # O(1) — inserción final
         gap //= 3
     return arr
+# --- Análisis Shell Sort (secuencia Knuth) ---
+# Número de gaps: O(log n)  ×  trabajo por gap: O(n · n/gap)
+# Suma sobre todos los gaps  →  O(n log² n) promedio
+# Peor caso conocido con Knuth: O(n^(3/2))  |  Espacio: O(1)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -242,15 +249,18 @@ def counting_sort_prioridad(pedidos: list[Pedido]) -> list[Pedido]:
         return []
 
     k = 4   # Prioridad.URGENTE=1 … Prioridad.BAJA=4
-    conteo = [[] for _ in range(k + 1)]   # índices 0..4
+    conteo = [[] for _ in range(k + 1)]   # índices 0..4       # O(k) — k=4, constante
 
-    for p in pedidos:
-        conteo[p.prioridad.value].append(p)
+    for p in pedidos:                                           # O(n) — distribuye en cubetas
+        conteo[p.prioridad.value].append(p)                    # O(1) — append amortizado
 
     resultado = []
-    for bucket in conteo[1:]:             # de prioridad 1 a 4
-        resultado.extend(bucket)
+    for bucket in conteo[1:]:             # de prioridad 1 a 4 # O(k) = O(1) — k fijo
+        resultado.extend(bucket)                                # O(n) total al juntar todo
     return resultado
+# --- Análisis Counting Sort ---
+# O(n) distribución + O(k) acumulado + O(n) concatenación  →  O(n + k)
+# Con k=4 constante  →  O(n)  |  Estable  |  Espacio: O(n + k)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -267,10 +277,13 @@ def busqueda_lineal_cliente(pedidos: list[Pedido],
     """
     termino_lower = termino.lower()
     encontrados = []
-    for p in pedidos:                          # recorre 1 a 1
-        if termino_lower in p.cliente.lower():
+    for p in pedidos:                          # recorre 1 a 1  # O(n) — sin acceso directo
+        if termino_lower in p.cliente.lower():                  # O(|cliente|) ≈ O(1) strings cortos
             encontrados.append(p)
     return encontrados
+# --- Análisis Búsqueda Lineal ---
+# Peor caso (no encontrado): visita n elementos  →  O(n)
+# Mejor caso (primer elemento): O(1)  |  Espacio: O(resultado) ≤ O(n)
 
 
 def busqueda_lineal_sector(pedidos: list[Pedido],
@@ -279,7 +292,8 @@ def busqueda_lineal_sector(pedidos: list[Pedido],
     Búsqueda lineal por sector/nodo destino exacto.
     Complejidad: O(n).
     """
-    return [p for p in pedidos if p.nodo_destino == nodo_id]
+    return [p for p in pedidos if p.nodo_destino == nodo_id]   # O(n) — comprensión de lista
+# O(n) — compara nodo_destino de cada pedido; sin estructura auxiliar
 
 
 # ══════════════════════════════════════════════════════════════
@@ -295,18 +309,21 @@ def busqueda_binaria_id(pedidos: list[Pedido],
     Nota: ordena internamente — si se llama muchas veces,
           pre-ordenar externamente para mayor eficiencia.
     """
-    arr = sorted(pedidos, key=lambda p: p.id)
+    arr = sorted(pedidos, key=lambda p: p.id)                  # O(n log n) — sort previo
     izq, der = 0, len(arr) - 1
 
-    while izq <= der:                          # iterativa (no recursiva)
-        mid = (izq + der) // 2
-        if arr[mid].id == id_buscado:
+    while izq <= der:                          # iterativa (no recursiva)  # O(log n) iteraciones
+        mid = (izq + der) // 2                                 # O(1) — punto medio
+        if arr[mid].id == id_buscado:                          # O(1) — comparación de strings cortos
             return arr[mid]
-        elif arr[mid].id < id_buscado:
-            izq = mid + 1
+        elif arr[mid].id < id_buscado:                         # O(1)
+            izq = mid + 1                                      # descarta mitad izquierda
         else:
-            der = mid - 1
+            der = mid - 1                                      # descarta mitad derecha
     return None
+# --- Análisis Búsqueda Binaria ---
+# Cada iteración divide el espacio a la mitad: T(n) = T(n/2) + O(1)  →  O(log n)
+# Incluye sort interno: O(n log n) + O(log n) = O(n log n) total si lista no está pre-ordenada
 
 
 # ══════════════════════════════════════════════════════════════
@@ -339,34 +356,38 @@ def huffman_codigos(texto: str) -> dict[str, str]:
     if not texto:
         return {}
 
-    freq = Counter(texto)
+    freq = Counter(texto)                                       # O(n) — cuenta frecuencias
 
     # Caso especial: texto de un solo carácter único
     if len(freq) == 1:
         char = next(iter(freq))
         return {char: "0"}
 
-    heap = [_NodoHuffman(f, c) for c, f in freq.items()]
-    heapq.heapify(heap)
+    heap = [_NodoHuffman(f, c) for c, f in freq.items()]      # O(k) — k = chars únicos
+    heapq.heapify(heap)                                        # O(k) — heapify lineal
 
-    while len(heap) > 1:
-        izq = heapq.heappop(heap)
-        der = heapq.heappop(heap)
+    while len(heap) > 1:                                       # k-1 fusiones
+        izq = heapq.heappop(heap)                              # O(log k) — extracción
+        der = heapq.heappop(heap)                              # O(log k)
         padre = _NodoHuffman(izq.freq + der.freq, izq=izq, der=der)
-        heapq.heappush(heap, padre)
+        heapq.heappush(heap, padre)                            # O(log k) — inserción
 
     raiz = heap[0]
     codigos: dict[str, str] = {}
 
     def _recorrer(nodo: _NodoHuffman, prefijo: str):
-        if nodo.char:                          # hoja
+        if nodo.char:                          # hoja           # O(1) — nodo hoja
             codigos[nodo.char] = prefijo
         else:
-            if nodo.izq: _recorrer(nodo.izq, prefijo + "0")
-            if nodo.der: _recorrer(nodo.der, prefijo + "1")
+            if nodo.izq: _recorrer(nodo.izq, prefijo + "0")   # recorre subárbol izquierdo
+            if nodo.der: _recorrer(nodo.der, prefijo + "1")   # recorre subárbol derecho
+    # _recorrer visita los 2k-1 nodos del árbol  →  O(k)
 
     _recorrer(raiz, "")
     return codigos
+# --- Análisis Huffman ---
+# O(n) frecuencias + O(k) heapify + O(k log k) fusiones + O(k) recorrido
+# k = chars únicos ≤ n  →  dominante: O(k log k) ≤ O(n log n)
 
 
 def huffman_comprimir(texto: str) -> tuple[str, dict[str, str]]:
@@ -383,15 +404,17 @@ def huffman_descomprimir(bits: str, codigos: dict[str, str]) -> str:
     """
     Descomprime string de bits usando la tabla de códigos.
     """
-    inverso = {v: k for k, v in codigos.items()}
+    inverso = {v: k for k, v in codigos.items()}               # O(k) — invierte tabla
     resultado = []
     buffer = ""
-    for bit in bits:
+    for bit in bits:                                            # O(b) — b = longitud en bits
         buffer += bit
-        if buffer in inverso:
+        if buffer in inverso:                                   # O(|buffer|) lookup en dict
             resultado.append(inverso[buffer])
             buffer = ""
     return "".join(resultado)
+# --- Análisis descompresión ---
+# O(b) recorrido de bits; b = longitud comprimida ≤ n·log₂k  →  O(n log k) ≤ O(n log n)
 
 
 def demo_huffman(texto: str) -> str:
