@@ -21,7 +21,7 @@ import math
 from typing import Optional
 from modelos import (Pedido, Repartidor, ResultadoAlgoritmo, Prioridad,
                      bubble_sort, shell_sort, counting_sort_prioridad)
-from grafo_san_sebastian import GrafoSanSebastian, ZONAS
+from grafo_osm import GrafoSanSebastian, ZONAS
 
 
 # ══════════════════════════════════════════════════════════════

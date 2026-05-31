@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_76ab41e410dced055b5c34cbed81652d {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+            <div class="folium-map" id="map_76ab41e410dced055b5c34cbed81652d" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_76ab41e410dced055b5c34cbed81652d = L.map(
+                "map_76ab41e410dced055b5c34cbed81652d",
+                {
+                    center: [-13.528, -71.927],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 14,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_f71c45e84e75adf25cb9e8295cdcdd06 = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 19,
+  "maxNativeZoom": 19,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_f71c45e84e75adf25cb9e8295cdcdd06.addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var marker_f2d7ebf90a7a9b7af2145fa8f7bc151c = L.marker(
+                [-13.5222, -71.9392],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_164e292d1b5ec74f56e91f4f7e99565c = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "darkblue",
+  "iconColor": "white",
+  "icon": "home",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_6e11c6780391fe504b2a170c99a646f9 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_df55d640f0761e97112a97957b07b2cc = $(`<div id="html_df55d640f0761e97112a97957b07b2cc" style="width: 100.0%; height: 100.0%;"><b>DEPOSITÓ CENTRAL</b></div>`)[0];
+                popup_6e11c6780391fe504b2a170c99a646f9.setContent(html_df55d640f0761e97112a97957b07b2cc);
+            
+        
+
+        marker_f2d7ebf90a7a9b7af2145fa8f7bc151c.bindPopup(popup_6e11c6780391fe504b2a170c99a646f9)
+        ;
+
+        
+    
+    
+                marker_f2d7ebf90a7a9b7af2145fa8f7bc151c.setIcon(icon_164e292d1b5ec74f56e91f4f7e99565c);
+            
+    
+            var marker_f1397e5f0a913a14b37a0fb2e3c05f6c = L.marker(
+                [-13.5308, -71.9498],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_d0eba87a2341d9c96142dd765551c257 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "orange",
+  "iconColor": "white",
+  "icon": "envelope",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_652535c0e1d88583d89a2dcd748d9a38 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_55276c2dd7a6b6501615636865dfd803 = $(`<div id="html_55276c2dd7a6b6501615636865dfd803" style="width: 100.0%; height: 100.0%;"><b>Pedido:</b> P001<br><b>Cliente:</b> Farmacia San Sebastián<br><b>Prioridad:</b> URGENTE</div>`)[0];
+                popup_652535c0e1d88583d89a2dcd748d9a38.setContent(html_55276c2dd7a6b6501615636865dfd803);
+            
+        
+
+        marker_f1397e5f0a913a14b37a0fb2e3c05f6c.bindPopup(popup_652535c0e1d88583d89a2dcd748d9a38)
+        ;
+
+        
+    
+    
+                marker_f1397e5f0a913a14b37a0fb2e3c05f6c.setIcon(icon_d0eba87a2341d9c96142dd765551c257);
+            
+    
+            var marker_a9ec4e57132b344f0517204e283a7f38 = L.marker(
+                [-13.55, -71.945],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_65e7a32bf949256b33a9844e28b50ffe = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "orange",
+  "iconColor": "white",
+  "icon": "envelope",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_22f83c8e3d6f813c6cae32a008a5c17e = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_009fd0e413d33246b654ceb4fa42cd7d = $(`<div id="html_009fd0e413d33246b654ceb4fa42cd7d" style="width: 100.0%; height: 100.0%;"><b>Pedido:</b> P002<br><b>Cliente:</b> Abastos Central<br><b>Prioridad:</b> ALTA</div>`)[0];
+                popup_22f83c8e3d6f813c6cae32a008a5c17e.setContent(html_009fd0e413d33246b654ceb4fa42cd7d);
+            
+        
+
+        marker_a9ec4e57132b344f0517204e283a7f38.bindPopup(popup_22f83c8e3d6f813c6cae32a008a5c17e)
+        ;
+
+        
+    
+    
+                marker_a9ec4e57132b344f0517204e283a7f38.setIcon(icon_65e7a32bf949256b33a9844e28b50ffe);
+            
+    
+            var marker_2f942383bc9ad6f7a69f920731e1456d = L.marker(
+                [-13.5295, -71.9472],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_438b3c02b978f3ac185d88b1ad35e503 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "green",
+  "iconColor": "white",
+  "icon": "envelope",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_6e7b58d426cab6a122f707f52c9a75ed = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_1dd44c1765b8f01c31fe5ca50deb88bb = $(`<div id="html_1dd44c1765b8f01c31fe5ca50deb88bb" style="width: 100.0%; height: 100.0%;"><b>Pedido:</b> P003<br><b>Cliente:</b> Accesorios Cachimayo<br><b>Prioridad:</b> NORMAL</div>`)[0];
+                popup_6e7b58d426cab6a122f707f52c9a75ed.setContent(html_1dd44c1765b8f01c31fe5ca50deb88bb);
+            
+        
+
+        marker_2f942383bc9ad6f7a69f920731e1456d.bindPopup(popup_6e7b58d426cab6a122f707f52c9a75ed)
+        ;
+
+        
+    
+    
+                marker_2f942383bc9ad6f7a69f920731e1456d.setIcon(icon_438b3c02b978f3ac185d88b1ad35e503);
+            
+    
+            var marker_71746392f9cf9f2861cad19afbad3f6c = L.marker(
+                [-13.542, -71.948],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_76eca69388c7a0ca3be5a4bf3fed9b81 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "green",
+  "iconColor": "white",
+  "icon": "envelope",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_d1858d68a06299e6377c4b82bc12552d = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_5c5356fa7d4f7e9cb4ebfccfd836cff7 = $(`<div id="html_5c5356fa7d4f7e9cb4ebfccfd836cff7" style="width: 100.0%; height: 100.0%;"><b>Pedido:</b> P004<br><b>Cliente:</b> Vivanderas Enaco<br><b>Prioridad:</b> NORMAL</div>`)[0];
+                popup_d1858d68a06299e6377c4b82bc12552d.setContent(html_5c5356fa7d4f7e9cb4ebfccfd836cff7);
+            
+        
+
+        marker_71746392f9cf9f2861cad19afbad3f6c.bindPopup(popup_d1858d68a06299e6377c4b82bc12552d)
+        ;
+
+        
+    
+    
+                marker_71746392f9cf9f2861cad19afbad3f6c.setIcon(icon_76eca69388c7a0ca3be5a4bf3fed9b81);
+            
+    
+            var marker_5b38e0fbae27be9588e8f2d616d13bbc = L.marker(
+                [-13.54, -71.955],
+                {
+}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+            var icon_267b27e9c3f35bac3ea12ece649b7b63 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "green",
+  "iconColor": "white",
+  "icon": "envelope",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_b60d684fe378c1e7f5056b2101a20c39 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_5788269b43f138c2e2ac3d07ee22e6d0 = $(`<div id="html_5788269b43f138c2e2ac3d07ee22e6d0" style="width: 100.0%; height: 100.0%;"><b>Pedido:</b> P005<br><b>Cliente:</b> Urb. Túpac Amaru<br><b>Prioridad:</b> BAJA</div>`)[0];
+                popup_b60d684fe378c1e7f5056b2101a20c39.setContent(html_5788269b43f138c2e2ac3d07ee22e6d0);
+            
+        
+
+        marker_5b38e0fbae27be9588e8f2d616d13bbc.bindPopup(popup_b60d684fe378c1e7f5056b2101a20c39)
+        ;
+
+        
+    
+    
+                marker_5b38e0fbae27be9588e8f2d616d13bbc.setIcon(icon_267b27e9c3f35bac3ea12ece649b7b63);
+            
+    
+            var poly_line_d2b2ce0ead0365705515cd207f2636b4 = L.polyline(
+                [[-13.5178, -71.949], [-13.521, -71.951], [-13.525, -71.946], [-13.5295, -71.9472], [-13.5312, -71.9493], [-13.5308, -71.9498], [-13.533, -71.951], [-13.53, -71.956], [-13.54, -71.955], [-13.536, -71.948], [-13.542, -71.948], [-13.55, -71.945], [-13.542, -71.948], [-13.535, -71.943], [-13.5312, -71.9493], [-13.523, -71.954], [-13.5178, -71.949]],
+                {"bubblingMouseEvents": true, "color": "#1e90ff", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#1e90ff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.85, "smoothFactor": 1.0, "stroke": true, "weight": 6}
+            ).addTo(map_76ab41e410dced055b5c34cbed81652d);
+        
+    
+        var popup_1380d55a65a6625b564bd9353d6e0051 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_33f8ae08aea4ae681e68a11d601129b4 = $(`<div id="html_33f8ae08aea4ae681e68a11d601129b4" style="width: 100.0%; height: 100.0%;">Ruta de Despacho Óptima</div>`)[0];
+                popup_1380d55a65a6625b564bd9353d6e0051.setContent(html_33f8ae08aea4ae681e68a11d601129b4);
+            
+        
+
+        poly_line_d2b2ce0ead0365705515cd207f2636b4.bindPopup(popup_1380d55a65a6625b564bd9353d6e0051)
+        ;
+
+        
+    
+</script>
+</html>

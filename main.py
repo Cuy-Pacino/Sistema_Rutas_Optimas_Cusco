@@ -8,9 +8,10 @@ Docentes: M.Sc. Hector E. Ugarte R. & M.Sc. Boris Chullo Llave
 
 import sys
 import os
+from PyQt6.QtWidgets import QApplication
+from gui_pyqt import App
 
-# Asegura que Python encuentre los módulos del proyecto
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 
 def verificar_dependencias():
@@ -29,42 +30,12 @@ def verificar_dependencias():
         sys.exit(1)
 
 
-def splash():
-    """Muestra información de inicio en consola."""
-    banner = r"""
-  ╔══════════════════════════════════════════════════════════════╗
-  ║    SISTEMA DE GESTIÓN DE RUTAS ÓPTIMAS — SAN SEBASTIÁN       ║
-  ║                  Cusco, Perú  |  2026                        ║
-  ║──────────────────────────────────────────────────────────────║
-  ║  Algoritmos implementados:                                   ║
-  ║    • Greedy        — Vecino Más Cercano    O(n²)             ║
-  ║    • Divide & C.   — Segmentación Zonal    O(n log n)        ║
-  ║    • Prog. Din.    — Knapsack 0/1          O(n·W)            ║
-  ║    • Backtracking  — Rutas Restringidas    O(n!)             ║
-  ║──────────────────────────────────────────────────────────────║
-  ║  Programación III — UNSAAC                                   ║
-  ║  M.Sc. Hector E. Ugarte R.  &  M.Sc. Boris Chullo Llave      ║
-  ╚══════════════════════════════════════════════════════════════╝
-"""
-    print(banner)
-
-
 def main():
-    verificar_dependencias()
-    splash()
-
-    print("  ▶ Cargando grafo de San Sebastián…")
-    from grafo_san_sebastian import GrafoSanSebastian
-    grafo = GrafoSanSebastian()
-    print(f"    ✔ {len(grafo.nodos)} nodos cargados")
-    print(f"    ✔ {sum(len(v) for v in grafo.adyacencia.values())//2} aristas cargadas")
-
-    print("  ▶ Iniciando interfaz gráfica…\n")
-    from gui import App
-    app = App()
-    app.mainloop()
-    print("\n  Aplicación cerrada. ¡Hasta pronto!")
-
+    print("Iniciando Sistema Logístico Profesional Avanzado...")
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()

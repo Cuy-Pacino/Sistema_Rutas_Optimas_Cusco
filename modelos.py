@@ -50,8 +50,8 @@ class Nodo:
     nombre: str
     lat: float
     lon: float
-    x: int = 0
-    y: int = 0
+    x: float
+    y: float
     es_deposito: bool = False
 
     def distancia_a(self, otro: "Nodo") -> float:
