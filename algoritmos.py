@@ -614,13 +614,12 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
             tiempo_total=float("inf"),
             pedidos_incluidos=[], valor_total=0,
             tiempo_computo=t1 - t0,
-            notas=f"❌ No existe camino de {inicio} a {fin} (ni Dijkstra lo encontró).",
-            complejidad_big_o="O(b^d)"
+            notas=f"❌ No existe camino de {inicio} a {fin} (ni Dijkstra lo encontró)."
         )
 
     # Cota de distancia y profundidad
-    cota_dist   = dist_dijk * 1.3             # no explorar ramas > 130% de óptimo
-    max_saltos  = len(ruta_dijk) + 6          # profundidad máxima razonable
+    cota_dist   = dist_dijk * 2.0             # no explorar ramas > 200% de óptimo
+    max_saltos  = len(ruta_dijk) + 20         # profundidad máxima para rutas largas
 
     todas_rutas: list[list[str]] = []
     todas_dists: list[float]     = []
@@ -676,8 +675,7 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
             pedidos_incluidos=[], valor_total=0,
             tiempo_computo=t1 - t0,
             notas=f"⚠ Backtracking sin rutas alternativas con restricciones. "
-                  f"Se usa ruta Dijkstra ({inicio}→{fin}).",
-            complejidad_big_o="O(b^d)"
+                  f"Se usa ruta Dijkstra ({inicio}→{fin})."
         )
 
     idx     = todas_dists.index(min(todas_dists))
@@ -698,7 +696,6 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
             f"Cota Dijkstra: {dist_dijk:.0f}m × 1.3 | "
             f"Bloqueadas: {[(o+chr(8596)+d) for o,d in calles_bloqueadas] or 'ninguna'}"
         ),
-        complejidad_big_o="O(b^d)"
     )
 
 
