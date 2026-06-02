@@ -9,9 +9,6 @@ import sys
 import time
 import math
 import traceback
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
 
 import folium
 from PyQt6.QtWidgets import (
@@ -22,10 +19,11 @@ from PyQt6.QtWidgets import (
     QCheckBox, QListWidget, QMessageBox, QFrame,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QObject, pyqtSlot
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PyQt6.QtWebChannel import QWebChannel
 
 from grafo_osm import GrafoOSM as GrafoSanSebastian, ZONAS
 from modelos import (
@@ -200,73 +198,77 @@ class _Worker(QThread):
         except Exception:
             self.error.emit(traceback.format_exc())
 
-# ─────────────────────────── Servidor HTTP para clics del mapa ───────────────
+# ─────────────────────────── Bridge Qt <-> JS (QWebChannel) ─────────────────
+
+class _MapBridge(QObject):
+    """
+    Objeto expuesto al JS del mapa via QWebChannel.
+    El JS llama  bridge.onClick(modo, lat, lon)  directamente,
+    sin necesidad de HTTP ni fetch cross-origin.
+    """
+    @pyqtSlot(str, float, float)
+    def onClick(self, modo: str, lat: float, lon: float):
+        global _app_instance
+        if _app_instance:
+            QTimer.singleShot(0, lambda: _app_instance._mapa_click(modo, lat, lon))
 
 _app_instance = None
 
-class _MapHandler(BaseHTTPRequestHandler):
-    def log_message(self, *_): pass
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-        if not _app_instance:
-            return
-
-        accion = parsed.path          # /set_deposito | /add_pedido | /set_bt_ini | /set_bt_fin
-        lat_s  = params.get("lat", [None])[0]
-        lon_s  = params.get("lon", [None])[0]
-        if lat_s is None or lon_s is None:
-            return
-
-        lat = float(lat_s)
-        lon = float(lon_s)
-        QTimer.singleShot(0, lambda: _app_instance._mapa_click(accion, lat, lon))
-
-
-def _iniciar_servidor_mapa():
-    try:
-        srv = HTTPServer(("localhost", 9999), _MapHandler)
-        t = threading.Thread(target=srv.serve_forever, daemon=True)
-        t.start()
-    except OSError:
-        pass   # puerto ya en uso
-
-
-# JavaScript que inyectamos en el mapa para capturar clics
+# JavaScript inyectado en el mapa — usa qwebchannel.js nativo de Qt
 _JS_CLICK = """
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script>
 (function() {
-    var _modo = 'pedido';   // modo por defecto
+    var _modo = 'pedido';
+    var _bridge = null;
+
     window._setModoMapa = function(m) { _modo = m; };
 
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(function() {
-            // Encontrar el objeto mapa de Leaflet
-            for (var key in window) {
-                try {
-                    var obj = window[key];
-                    if (obj && typeof obj.on === 'function' && obj._container) {
-                        obj.on('click', function(e) {
-                            var lat = e.latlng.lat.toFixed(7);
-                            var lon = e.latlng.lng.toFixed(7);
-                            var url = 'http://localhost:9999/' + _modo
-                                    + '?lat=' + lat + '&lon=' + lon;
-                            fetch(url).catch(function(){});
-                        });
-                    }
-                } catch(err) {}
+    function _attachToMap(mapObj) {
+        mapObj.on('click', function(e) {
+            if (_bridge) {
+                _bridge.onClick(_modo, e.latlng.lat, e.latlng.lng);
             }
-        }, 1000);
-    });
+        });
+    }
+
+    function _findLeafletMaps() {
+        var found = false;
+        for (var key in window) {
+            try {
+                var obj = window[key];
+                if (obj && typeof obj._leaflet_id !== 'undefined'
+                        && typeof obj.on === 'function'
+                        && typeof obj.getCenter === 'function') {
+                    _attachToMap(obj);
+                    found = true;
+                }
+            } catch(e) {}
+        }
+        return found;
+    }
+
+    function _init() {
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            _bridge = channel.objects.bridge;
+            function _try(n) {
+                if (!_findLeafletMaps() && n > 0) {
+                    setTimeout(function() { _try(n - 1); }, 350);
+                }
+            }
+            _try(15);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _init);
+    } else {
+        _init();
+    }
 })();
 </script>
 """
+
 
 # ─────────────────────────── Página Web con interceptor ──────────────────────
 
@@ -299,7 +301,7 @@ class App(QMainWindow):
 
         global _app_instance
         _app_instance = self
-        _iniciar_servidor_mapa()
+        # QWebChannel se configura en _build_ui después de crear el web_view
 
         self.setStyleSheet(GLOBAL_STYLESHEET)
         self._build_ui()
@@ -336,6 +338,15 @@ class App(QMainWindow):
                 prioridad=pri, hora_registro=time.time()
             ))
         self._actualizar_tabla()
+        # Actualizar etiquetas de BT con los nodos por defecto (ya construidas)
+        if self._bt_ini_nid:
+            n = self.grafo.nodos.get(self._bt_ini_nid)
+            if n:
+                self.lbl_bt_ini.setText(f"▶ {n.nombre[:35]}")
+        if self._bt_fin_nid:
+            n = self.grafo.nodos.get(self._bt_fin_nid)
+            if n:
+                self.lbl_bt_fin.setText(f"⏹ {n.nombre[:35]}")
 
     # ── Layout principal ─────────────────────────────────────
 
@@ -373,6 +384,13 @@ class App(QMainWindow):
         s.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+
+        # ── QWebChannel: comunicación nativa Qt <-> JS ─────────
+        self._bridge  = _MapBridge()
+        self._channel = QWebChannel(page)
+        self._channel.registerObject("bridge", self._bridge)
+        page.setWebChannel(self._channel)
+
         right_layout.addWidget(self.web_view, stretch=3)
 
         # ── Barra de modo de clic ──────────────────────────────
@@ -462,44 +480,50 @@ class App(QMainWindow):
         lay.setSpacing(4)
 
         lay.addWidget(_lbl("── Nuevo Pedido ──", 9, True, ACCENT))
-        lay.addWidget(_lbl(
-            "💡 Haz clic en el mapa con modo '📦 Añadir Pedido' para\n"
-            "   asignar la ubicación, o elige el destino manualmente.",
-            7, False, TEXT_DIM))
 
         grid = QGridLayout()
         grid.setSpacing(4)
         for i, (lbl_txt, ph) in enumerate([
-            ("Cliente:", ""), ("Peso kg:", "2.0"),
-            ("Vol L:",   "4.0"), ("Valor S/.:", "30.0")
+            ("Cliente:", "nombre del cliente"),
+            ("Peso kg:", "2.0"),
+            ("Vol L:",   "4.0"),
+            ("Valor S/.:", "30.0"),
         ]):
             grid.addWidget(_lbl(lbl_txt, 8, False, TEXT_DIM), i, 0)
             e = _entry(ph)
             grid.addWidget(e, i, 1)
-        self.e_cli  = grid.itemAtPosition(0,1).widget()
-        self.e_peso = grid.itemAtPosition(1,1).widget()
-        self.e_vol  = grid.itemAtPosition(2,1).widget()
-        self.e_val  = grid.itemAtPosition(3,1).widget()
+        self.e_cli  = grid.itemAtPosition(0, 1).widget()
+        self.e_peso = grid.itemAtPosition(1, 1).widget()
+        self.e_vol  = grid.itemAtPosition(2, 1).widget()
+        self.e_val  = grid.itemAtPosition(3, 1).widget()
 
-        nids = [n for n in self.grafo.nodos if not self.grafo.nodos[n].es_deposito]
-        grid.addWidget(_lbl("Destino:", 8, False, TEXT_DIM), 4, 0)
-        self.cb_dest = _combo(
-            [f"{n} | {self.grafo.nodos[n].nombre[:30]}" for n in nids])
-        grid.addWidget(self.cb_dest, 4, 1)
-
-        grid.addWidget(_lbl("Prioridad:", 8, False, TEXT_DIM), 5, 0)
+        grid.addWidget(_lbl("Prioridad:", 8, False, TEXT_DIM), 4, 0)
         self.cb_pri = _combo(["URGENTE", "ALTA", "NORMAL", "BAJA"])
         self.cb_pri.setCurrentIndex(2)
-        grid.addWidget(self.cb_pri, 5, 1)
+        grid.addWidget(self.cb_pri, 4, 1)
         lay.addLayout(grid)
 
-        # Destino desde clic (label de estado)
-        self.lbl_dest_clic = _lbl("", 7, False, ACCENT2)
+        # ── Picker de destino ──────────────────────────────────
+        lay.addWidget(_sep())
+        lay.addWidget(_lbl("── Destino de Entrega ──", 9, True, ACCENT))
+        lay.addWidget(_lbl(
+            "Activa el picker y haz clic sobre el mapa\n"
+            "para seleccionar la ubicación de entrega.", 7, False, TEXT_DIM))
+
+        picker_row = QHBoxLayout()
+        self.btn_picker_ped = _btn("🖱 Seleccionar en mapa", ACCENT2, 30)
+        self.btn_picker_ped.setCheckable(True)
+        self.btn_picker_ped.clicked.connect(self._toggle_picker_pedido)
+        picker_row.addWidget(self.btn_picker_ped)
+        lay.addLayout(picker_row)
+
+        self.lbl_dest_clic = _lbl("📍 Sin destino seleccionado", 8, False, TEXT_DIM)
         lay.addWidget(self.lbl_dest_clic)
+        self._pedido_dest_nid: str | None = None  # nid seleccionado con picker
 
         bf = QHBoxLayout()
-        b_add = _btn("➕ Agregar", ACCENT)
-        b_cls = _btn("🗑 Limpiar", RED_VIF)
+        b_add = _btn("➕ Agregar Pedido", ACCENT, 30)
+        b_cls = _btn("🗑 Limpiar Todo",   RED_VIF, 30)
         b_add.clicked.connect(self._agregar_pedido)
         b_cls.clicked.connect(self._limpiar_pedidos)
         bf.addWidget(b_add); bf.addWidget(b_cls)
@@ -543,8 +567,26 @@ class App(QMainWindow):
         lay.setSpacing(4)
 
         lay.addWidget(_lbl("── Repartidor ──", 9, True, ACCENT))
+        rep_row = QHBoxLayout()
         self.cb_rep = _combo([f"{r.id} – {r.nombre}" for r in self.repartidores])
-        lay.addWidget(self.cb_rep)
+        b_add_rep = _btn("➕ Nuevo", ACCENT2, 26)
+        b_add_rep.clicked.connect(self._agregar_repartidor)
+        rep_row.addWidget(self.cb_rep, stretch=1)
+        rep_row.addWidget(b_add_rep)
+        lay.addLayout(rep_row)
+
+        dep_row = QHBoxLayout()
+        dep_row.addWidget(_lbl("Depósito:", 8, False, TEXT_DIM))
+        self.btn_picker_dep = _btn("🏭 Fijar Depósito en mapa", ACCENT, 26)
+        self.btn_picker_dep.setCheckable(True)
+        self.btn_picker_dep.clicked.connect(self._toggle_picker_deposito)
+        dep_row.addWidget(self.btn_picker_dep, stretch=1)
+        lay.addLayout(dep_row)
+        self.lbl_dep_actual = _lbl("", 7, False, TEXT_DIM)
+        dep = next((n for n in self.grafo.nodos.values() if n.es_deposito), None)
+        if dep:
+            self.lbl_dep_actual.setText(f"📍 {dep.nombre[:40]}")
+        lay.addWidget(self.lbl_dep_actual)
 
         lay.addWidget(_sep())
         lay.addWidget(_lbl("── Ejecutar Algoritmo ──", 9, True, ACCENT))
@@ -587,19 +629,25 @@ class App(QMainWindow):
         lay.addWidget(_sep())
         lay.addWidget(_lbl("── Búsqueda Lineal por Cliente ──", 9, True, ACCENT))
         r2 = QHBoxLayout()
-        self.e_bcli = _entry("nombre...")
+        self.e_bcli = _entry("nombre del cliente...")
         b_cli = _btn("🔍 Lineal O(n)", ACCENT2, 28)
         b_cli.clicked.connect(self._buscar_lineal_cli)
         r2.addWidget(self.e_bcli); r2.addWidget(b_cli)
         lay.addLayout(r2)
 
         lay.addWidget(_sep())
-        lay.addWidget(_lbl("── Búsqueda por Sector ──", 9, True, ACCENT))
+        lay.addWidget(_lbl("── Búsqueda por Zona (Divide y Vencerás) ──",
+                           9, True, ACCENT))
+        lay.addWidget(_lbl(
+            "Selecciona una zona para listar sus pedidos.\n"
+            "La zona se resaltará en el mapa.", 7, False, TEXT_DIM))
         r3 = QHBoxLayout()
-        self.cb_sec = _combo(list(self.grafo.nodos.keys()))
-        b_sec = _btn("🔍 Sector O(n)", PURPLE, 28)
-        b_sec.clicked.connect(self._buscar_lineal_sec)
-        r3.addWidget(self.cb_sec); r3.addWidget(b_sec)
+        self.cb_sec = _combo(["OESTE", "CENTRO", "ESTE"])
+        b_sec = _btn("🔍 Buscar Zona", PURPLE, 28)
+        b_vis = _btn("🗺 Ver Zona", BLUE, 28)
+        b_sec.clicked.connect(self._buscar_por_zona)
+        b_vis.clicked.connect(self._visualizar_zona)
+        r3.addWidget(self.cb_sec); r3.addWidget(b_sec); r3.addWidget(b_vis)
         lay.addLayout(r3)
 
         lay.addWidget(_sep())
@@ -625,19 +673,13 @@ class App(QMainWindow):
 
         lay.addWidget(_lbl("── Herramientas del Grafo ──", 9, True, ACCENT))
         botones = [
-            ("🎨 Coloreo de Grafos (Welsh-Powell)", ACCENT,   self._run_coloreo),
-            ("📍 Par de Puntos Más Cercanos",        ACCENT2,  self._run_par_cercano),
-            ("📊 Merge Sort Nodos por X",            PURPLE,   self._run_merge_nodos),
-            ("🔢 Exponenciación Rápida — demo",      TEXT_DIM, self._run_expo),
+            ("📍 Par de Puntos Más Cercanos",  ACCENT2, self._run_par_cercano),
+            ("📊 Merge Sort — Nodos Activos",  PURPLE,  self._run_merge_nodos),
         ]
         for txt, col, fn in botones:
             b = _btn(txt, col, 32); b.clicked.connect(fn)
             lay.addWidget(b)
 
-        lay.addWidget(_sep())
-        self.chk_coloreo = QCheckBox("Mostrar coloreo en el mapa")
-        self.chk_coloreo.stateChanged.connect(self._toggle_coloreo)
-        lay.addWidget(self.chk_coloreo)
 
         lay.addWidget(_sep())
         lay.addWidget(_lbl("── Resultado ──", 9, True, ACCENT))
@@ -652,44 +694,80 @@ class App(QMainWindow):
         lay.setSpacing(4)
 
         lay.addWidget(_lbl("── Bloquear Calles ──", 9, True, ACCENT))
-        edges = [(a.origen, a.destino) for a in self.grafo._aristas_raw]
-        self.cb_blq = _combo([f"{o} ↔ {d}" for o, d in edges])
-        lay.addWidget(self.cb_blq)
+        lay.addWidget(_lbl(
+            "Activa el picker y haz clic en DOS puntos del mapa\n"
+            "para seleccionar el tramo a bloquear.", 7, False, TEXT_DIM))
 
-        bf = QHBoxLayout()
-        b_blq = _btn("🚧 Bloquear", RED_VIF)
-        b_des = _btn("✅ Desbloquear", GREEN_VIF)
-        b_blq.clicked.connect(self._bloquear)
-        b_des.clicked.connect(self._desbloquear)
-        bf.addWidget(b_blq); bf.addWidget(b_des)
-        lay.addLayout(bf)
+        blq_row = QHBoxLayout()
+        self.btn_picker_blq = _btn("🚧 Seleccionar tramo", RED_VIF, 28)
+        self.btn_picker_blq.setCheckable(True)
+        self.btn_picker_blq.clicked.connect(self._toggle_picker_bloqueo)
+        self.lbl_blq_estado = _lbl("Sin selección", 7, False, TEXT_DIM)
+        blq_row.addWidget(self.btn_picker_blq)
+        blq_row.addWidget(self.lbl_blq_estado, stretch=1)
+        lay.addLayout(blq_row)
+
+        b_des_sel = _btn("✅ Desbloquear seleccionado", GREEN_VIF, 26)
+        b_des_sel.clicked.connect(self._desbloquear_seleccionado)
+        lay.addWidget(b_des_sel)
 
         lay.addWidget(_lbl("Calles bloqueadas:", 8, False, TEXT_DIM))
         self.lst_blq = QListWidget()
-        self.lst_blq.setMaximumHeight(80)
+        self.lst_blq.setMaximumHeight(90)
         lay.addWidget(self.lst_blq)
 
         lay.addWidget(_sep())
-        lay.addWidget(_lbl("── Backtracking — Origen/Destino ──", 9, True, ACCENT))
+        lay.addWidget(_lbl("── Backtracking — Origen y Destino ──",
+                           9, True, ACCENT))
         lay.addWidget(_lbl(
-            "💡 También puedes usar los botones '▶ Inicio BT' y '⏹ Destino BT'\n"
-            "   haciendo clic directamente en el mapa.", 7, False, TEXT_DIM))
+            "Usa los pickers o los botones de la barra del mapa.", 7, False, TEXT_DIM))
 
-        nids = list(self.grafo.nodos.keys())
-        bt_grid = QGridLayout()
-        bt_grid.addWidget(_lbl("Desde:", 8, False, TEXT_DIM), 0, 0)
-        self.cb_bt_ini = _combo(nids)
-        bt_grid.addWidget(self.cb_bt_ini, 0, 1)
-        bt_grid.addWidget(_lbl("Hasta:", 8, False, TEXT_DIM), 1, 0)
-        self.cb_bt_fin = _combo(nids)
-        self.cb_bt_fin.setCurrentIndex(min(2, len(nids)-1))
-        bt_grid.addWidget(self.cb_bt_fin, 1, 1)
-        lay.addLayout(bt_grid)
+        # Picker inicio BT
+        ini_row = QHBoxLayout()
+        ini_row.addWidget(_lbl("Desde:", 8, False, TEXT_DIM))
+        self.btn_picker_bt_ini = _btn("▶ Picker inicio", BLUE, 26)
+        self.btn_picker_bt_ini.setCheckable(True)
+        self.btn_picker_bt_ini.clicked.connect(
+            lambda: self._toggle_picker_bt("bt_ini"))
+        ini_row.addWidget(self.btn_picker_bt_ini, stretch=1)
+        lay.addLayout(ini_row)
+        self.lbl_bt_ini = _lbl("No seleccionado", 7, False, BLUE)
+        lay.addWidget(self.lbl_bt_ini)
+
+        # Picker destino BT
+        fin_row = QHBoxLayout()
+        fin_row.addWidget(_lbl("Hasta:", 8, False, TEXT_DIM))
+        self.btn_picker_bt_fin = _btn("⏹ Picker destino", RED_VIF, 26)
+        self.btn_picker_bt_fin.setCheckable(True)
+        self.btn_picker_bt_fin.clicked.connect(
+            lambda: self._toggle_picker_bt("bt_fin"))
+        fin_row.addWidget(self.btn_picker_bt_fin, stretch=1)
+        lay.addLayout(fin_row)
+        self.lbl_bt_fin = _lbl("No seleccionado", 7, False, RED_VIF)
+        lay.addWidget(self.lbl_bt_fin)
+
+        # Estado interno para los BT pickers (nid seleccionado)
+        # Valores por defecto: depósito → nodo más cercano a Urb. Túpac Amaru
+        dep_node = next((n for n in self.grafo.nodos.values() if n.es_deposito), None)
+        self._bt_ini_nid: str | None = dep_node.id if dep_node else None
+
+        # Túpac Amaru está al este de San Sebastián (~-13.530, -71.923)
+        # Búsqueda lineal directa para evitar dependencia de scikit-learn
+        _TUPAC_LAT, _TUPAC_LON = -13.5305, -71.9230
+        tupac_nid = min(
+            self.grafo.nodos,
+            key=lambda nid: (self.grafo.nodos[nid].lat - _TUPAC_LAT)**2
+                          + (self.grafo.nodos[nid].lon - _TUPAC_LON)**2
+        )
+        self._bt_fin_nid: str | None = tupac_nid
+
+        self._blq_paso: int = 0      # 0=libre, 1=esperando 1er clic, 2=esperando 2do
+        self._blq_nid1: str | None = None
 
         lay.addWidget(_sep())
         st = self.grafo.stats()
-        info = (f"Fuente: {st.get('fuente','?').upper()}  |  "
-                f"{st.get('nodos',0)} nodos  |  {st.get('aristas','?')} aristas\n"
+        info = (f"Fuente: OSM  |  {st.get('nodos',0)} nodos  |  "
+                f"{st.get('aristas','?')} aristas\n"
                 f"Zona: San Sebastián, Cusco")
         lay.addWidget(_lbl(info, 8, False, TEXT_DIM))
         lay.addStretch()
@@ -743,65 +821,153 @@ class App(QMainWindow):
         self._modo_mapa = modo
         for k, b in self._modo_btns.items():
             b.setChecked(k == modo)
-        # Inyectar JS al mapa para que sepa el modo actual
         self.web_view.page().runJavaScript(
             f"if(typeof window._setModoMapa==='function') window._setModoMapa('{modo}');")
         modos_label = {
-            "pedido":   "📦 Clic en el mapa para añadir pedido",
-            "deposito": "🏭 Clic en el mapa para fijar depósito",
-            "bt_ini":   "▶ Clic en el mapa para fijar inicio Backtracking",
-            "bt_fin":   "⏹ Clic en el mapa para fijar destino Backtracking",
+            "pedido":   "📦 Haz clic en el mapa para añadir un pedido",
+            "deposito": "🏭 Haz clic para fijar el depósito",
+            "bt_ini":   "▶ Haz clic para fijar el INICIO del Backtracking",
+            "bt_fin":   "⏹ Haz clic para fijar el DESTINO del Backtracking",
+            "bloqueo1": "🚧 [1/2] Haz clic en el PRIMER punto del tramo a bloquear",
+            "bloqueo2": "🚧 [2/2] Haz clic en el SEGUNDO punto del tramo a bloquear",
         }
         self._write(self.txt_res, modos_label.get(modo, ""))
+        # Cambiar cursor: cruz de mira cuando hay picker activo, normal si no
+        picker_activo = modo != "pedido"
+        cursor = Qt.CursorShape.CrossCursor if picker_activo else Qt.CursorShape.ArrowCursor
+        self.web_view.setCursor(cursor)
+
+    # ── Toggles de pickers ───────────────────────────────────
+
+    def _toggle_picker_pedido(self):
+        self._cambiar_modo_mapa("pedido")
+        for k, b in self._modo_btns.items():
+            b.setChecked(k == "pedido")
+
+    def _toggle_picker_deposito(self):
+        if self.btn_picker_dep.isChecked():
+            self._cambiar_modo_mapa("deposito")
+            # marcar también el botón de la barra
+            for k, b in self._modo_btns.items():
+                b.setChecked(k == "deposito")
+        else:
+            self._cambiar_modo_mapa("pedido")
+
+    def _toggle_picker_bloqueo(self):
+        if self.btn_picker_blq.isChecked():
+            self._blq_paso  = 1
+            self._blq_nid1  = None
+            self._cambiar_modo_mapa("bloqueo1")
+            self.lbl_blq_estado.setText("Clic en punto 1…")
+        else:
+            self._blq_paso = 0
+            self._cambiar_modo_mapa("pedido")
+            self.lbl_blq_estado.setText("Sin selección")
+
+    def _toggle_picker_bt(self, cual: str):
+        btn = self.btn_picker_bt_ini if cual == "bt_ini" else self.btn_picker_bt_fin
+        if btn.isChecked():
+            self._cambiar_modo_mapa(cual)
+            for k, b in self._modo_btns.items():
+                b.setChecked(k == cual)
+        else:
+            self._cambiar_modo_mapa("pedido")
 
     # ── Acción al hacer clic en el mapa ──────────────────────
 
     def _mapa_click(self, accion: str, lat: float, lon: float):
-        nid = self.grafo.nodo_mas_cercano_a(lat, lon)
+        nid  = self.grafo.nodo_mas_cercano_a(lat, lon)
         nodo = self.grafo.nodos.get(nid)
         if not nodo:
             return
 
-        if accion == "/set_deposito" or accion == "/deposito":
-            # Actualizar depósito
+        modo = self._modo_mapa
+
+        # ── Añadir pedido ─────────────────────────────────────
+        if modo == "pedido":
+            self._pedido_dest_nid = nid
+            nombre_corto = nodo.nombre[:45]
+            self.lbl_dest_clic.setText(f"📍 {nombre_corto}")
+            self.lbl_dest_clic.setStyleSheet(
+                f"color:{ACCENT2}; font-family:'Courier New'; font-size:8pt;")
+            self._write(self.txt_res,
+                        f"📍 Destino seleccionado:\n  {nid}\n  {nodo.nombre}\n"
+                        f"  ({nodo.lat:.5f}, {nodo.lon:.5f})\n\n"
+                        f"  Completa los datos del pedido y pulsa ➕ Agregar.")
+
+        # ── Fijar depósito ────────────────────────────────────
+        elif modo == "deposito":
             for n in self.grafo.nodos.values():
                 object.__setattr__(n, "es_deposito", False)
             object.__setattr__(nodo, "es_deposito", True)
             for r in self.repartidores:
                 r.nodo_actual = nid
+            if hasattr(self, "lbl_dep_actual"):
+                self.lbl_dep_actual.setText(f"📍 {nodo.nombre[:40]}")
+            # Desactivar picker
+            if hasattr(self, "btn_picker_dep"):
+                self.btn_picker_dep.setChecked(False)
+            self._cambiar_modo_mapa("pedido")
             self._write(self.txt_res,
                         f"✅ Depósito fijado en:\n  {nid}\n  {nodo.nombre}\n"
                         f"  ({nodo.lat:.5f}, {nodo.lon:.5f})")
             self.actualizar_mapa_interactivo()
 
-        elif accion == "/add_pedido" or accion == "/pedido":
-            # Pre-seleccionar destino en el combo
-            for i in range(self.cb_dest.count()):
-                if self.cb_dest.itemText(i).startswith(nid):
-                    self.cb_dest.setCurrentIndex(i)
-                    break
-            self.lbl_dest_clic.setText(
-                f"📍 Destino seleccionado: {nid} — {nodo.nombre[:35]}")
-            self._write(self.txt_res,
-                        f"📍 Nodo seleccionado como destino:\n  {nid}\n  {nodo.nombre}\n"
-                        f"  Completa los datos y pulsa ➕ Agregar.")
+        # ── Bloqueo de calle — paso 1 ─────────────────────────
+        elif modo == "bloqueo1":
+            self._blq_nid1 = nid
+            self._cambiar_modo_mapa("bloqueo2")
+            self.lbl_blq_estado.setText(
+                f"Punto 1: {nodo.nombre[:25]}  → clic en punto 2")
 
-        elif accion == "/bt_ini" or accion == "/set_bt_ini":
-            idx = self.cb_bt_ini.findText(nid)
-            if idx >= 0:
-                self.cb_bt_ini.setCurrentIndex(idx)
-            self._write(self.txt_res, f"▶ Inicio Backtracking: {nid}\n  {nodo.nombre}")
+        # ── Bloqueo de calle — paso 2 ─────────────────────────
+        elif modo == "bloqueo2":
+            nid1 = self._blq_nid1
+            nid2 = nid
+            self._blq_paso = 0
+            self._blq_nid1 = None
+            if hasattr(self, "btn_picker_blq"):
+                self.btn_picker_blq.setChecked(False)
+            self._cambiar_modo_mapa("pedido")
+            if nid1 and nid1 != nid2:
+                par = (nid1, nid2)
+                if par not in self._bloqueadas:
+                    self._bloqueadas.append(par)
+                    self.grafo.bloquear_calle(*par)
+                    n1 = self.grafo.nodos.get(nid1)
+                    n1_nom = n1.nombre[:20] if n1 else nid1
+                    n2_nom = nodo.nombre[:20]
+                    self.lst_blq.addItem(f"{n1_nom} ↔ {n2_nom}")
+                    self.lbl_blq_estado.setText(
+                        f"🚧 Bloqueado: {n1_nom} ↔ {n2_nom}")
+                    self.actualizar_mapa_interactivo()
+            else:
+                self.lbl_blq_estado.setText("⚠ Mismo punto, cancelado")
 
-        elif accion == "/bt_fin" or accion == "/set_bt_fin":
-            idx = self.cb_bt_fin.findText(nid)
-            if idx >= 0:
-                self.cb_bt_fin.setCurrentIndex(idx)
-            self._write(self.txt_res, f"⏹ Destino Backtracking: {nid}\n  {nodo.nombre}")
+        # ── Backtracking inicio ───────────────────────────────
+        elif modo == "bt_ini":
+            self._bt_ini_nid = nid
+            if hasattr(self, "lbl_bt_ini"):
+                self.lbl_bt_ini.setText(f"▶ {nodo.nombre[:35]}")
+            if hasattr(self, "btn_picker_bt_ini"):
+                self.btn_picker_bt_ini.setChecked(False)
+            self._cambiar_modo_mapa("pedido")
+            self._write(self.txt_res, f"▶ Inicio BT: {nodo.nombre}\n  ({nid})")
+
+        # ── Backtracking destino ──────────────────────────────
+        elif modo == "bt_fin":
+            self._bt_fin_nid = nid
+            if hasattr(self, "lbl_bt_fin"):
+                self.lbl_bt_fin.setText(f"⏹ {nodo.nombre[:35]}")
+            if hasattr(self, "btn_picker_bt_fin"):
+                self.btn_picker_bt_fin.setChecked(False)
+            self._cambiar_modo_mapa("pedido")
+            self._write(self.txt_res, f"⏹ Destino BT: {nodo.nombre}\n  ({nid})")
 
     # ══ MAPA FOLIUM ══════════════════════════════════════════
 
     def actualizar_mapa_interactivo(self, rutas=None, coloreo=None,
-                                     par_cercano=None):
+                                     par_cercano=None, zona_resaltada=None):
         """Genera el mapa Folium con todos los elementos y lo carga en QWebEngineView."""
         # Centro del mapa en el depósito
         dep = next((n for n in self.grafo.nodos.values() if n.es_deposito), None)
@@ -897,7 +1063,37 @@ class App(QMainWindow):
                         tooltip=lbl,
                     ).add_to(mapa)
 
-        # ── Coloreo de nodos ──────────────────────────────────
+        # ── Zona resaltada ────────────────────────────────────
+        if zona_resaltada:
+            zona_nombre, nids_zona, zona_color = zona_resaltada
+            for nid in nids_zona:
+                nodo = self.grafo.nodos.get(nid)
+                if nodo:
+                    folium.CircleMarker(
+                        location=[nodo.lat, nodo.lon],
+                        radius=5,
+                        color=zona_color,
+                        fill=True,
+                        fill_color=zona_color,
+                        fill_opacity=0.35,
+                        weight=1,
+                        tooltip=f"Zona {zona_nombre}",
+                    ).add_to(mapa)
+
+        # ── Calles bloqueadas ─────────────────────────────────
+        for par in self._bloqueadas:
+            n1 = self.grafo.nodos.get(par[0])
+            n2 = self.grafo.nodos.get(par[1])
+            if n1 and n2:
+                folium.PolyLine(
+                    locations=[[n1.lat, n1.lon], [n2.lat, n2.lon]],
+                    color="#e74c3c",
+                    weight=5,
+                    opacity=0.9,
+                    dash_array="10",
+                    tooltip=f"🚧 Bloqueado: {n1.nombre[:20]} ↔ {n2.nombre[:20]}",
+                ).add_to(mapa)
+        # ── Coloreo de nodos ─────────────────────────────────
         if coloreo:
             _pal = ["red", "blue", "green", "orange", "purple",
                     "cadetblue", "darkred", "darkgreen"]
@@ -937,6 +1133,11 @@ class App(QMainWindow):
     # ══ ACCIONES PEDIDOS ═════════════════════════════════════
 
     def _agregar_pedido(self):
+        if not self._pedido_dest_nid:
+            QMessageBox.warning(self, "Destino requerido",
+                                "Activa '🖱 Seleccionar en mapa' y haz clic\n"
+                                "en el mapa para elegir el destino.")
+            return
         try:
             cli  = self.e_cli.text().strip() or f"Cliente {self._id_counter}"
             peso = float(self.e_peso.text() or "2")
@@ -946,20 +1147,22 @@ class App(QMainWindow):
             QMessageBox.critical(self, "Error",
                                  "Peso, Volumen y Valor deben ser números.")
             return
-        dest = self.cb_dest.currentText().split("|")[0].strip()
         pri  = Prioridad[self.cb_pri.currentText()]
         pid  = f"P{self._id_counter:03d}"
         self._id_counter += 1
         self.pedidos.append(Pedido(
-            id=pid, cliente=cli, nodo_destino=dest,
+            id=pid, cliente=cli, nodo_destino=self._pedido_dest_nid,
             peso=peso, volumen=vol, valor=val,
             prioridad=pri, hora_registro=time.time()
         ))
+        self._pedido_dest_nid = None
+        self.lbl_dest_clic.setText("📍 Sin destino seleccionado")
+        self.lbl_dest_clic.setStyleSheet(
+            f"color:{TEXT_DIM}; font-family:'Courier New'; font-size:8pt;")
         self._actualizar_tabla()
         self.actualizar_mapa_interactivo()
         for e in (self.e_cli, self.e_peso, self.e_vol, self.e_val):
             e.clear()
-        self.lbl_dest_clic.setText("")
 
     def _limpiar_pedidos(self):
         if QMessageBox.question(
@@ -993,11 +1196,14 @@ class App(QMainWindow):
     # ══ ACCIONES ALGORITMOS ══════════════════════════════════
 
     def _run_en_hilo(self, fn, on_done, on_error_msg="❌ Error en el algoritmo"):
-        """Lanza fn() en _Worker, llama on_done(result) al terminar."""
+        """Lanza fn() en _Worker. Si hay uno corriendo, lo cancela y lanza el nuevo."""
         if self._worker and self._worker.isRunning():
-            QMessageBox.warning(self, "Espera",
-                                "Ya hay un algoritmo en ejecución.")
-            return
+            # Desconectar señales del worker anterior y dejar que termine en background
+            try:
+                self._worker.finished.disconnect()
+                self._worker.error.disconnect()
+            except Exception:
+                pass
         self._worker = _Worker(fn)
         self._worker.finished.connect(on_done)
         self._worker.error.connect(
@@ -1050,12 +1256,23 @@ class App(QMainWindow):
             lambda: divide_y_venceras(self.grafo, reps, peds), _on_done)
 
     def _run_backtracking(self):
-        ini = self.cb_bt_ini.currentText()
-        fin = self.cb_bt_fin.currentText()
+        ini = getattr(self, "_bt_ini_nid", None)
+        fin = getattr(self, "_bt_fin_nid", None)
+        if not ini or not fin:
+            QMessageBox.warning(self, "Selecciona puntos",
+                                "Usa los pickers de Backtracking en la pestaña\n"
+                                "Config (▶ y ⏹) o los botones de la barra del mapa\n"
+                                "para fijar el inicio y destino.")
+            return
         if ini == fin:
             return QMessageBox.warning(self, "", "Inicio y destino deben ser distintos.")
         bloq = list(self._bloqueadas)
-        self._write(self.txt_res, f"⏳ Backtracking {ini} → {fin}…")
+        self._write(self.txt_res,
+                    f"⏳ Backtracking en ejecución…\n"
+                    f"  Desde : {self.grafo.nodos[ini].nombre}\n"
+                    f"  Hasta : {self.grafo.nodos[fin].nombre}\n"
+                    f"  Calles bloqueadas: {len(bloq)}\n\n"
+                    f"  (Usando poda Dijkstra para garantizar que termine)")
         def _on_done(r):
             self._mostrar(r)
             self.actualizar_mapa_interactivo(
@@ -1115,9 +1332,9 @@ class App(QMainWindow):
         peds = list(self.pedidos)
         bloq = list(self._bloqueadas)
         destinos = [p.nodo_destino for p in peds if not p.entregado]
-        fin_bt = (self.cb_bt_fin.currentText()
+        ini_bt = (self._bt_ini_nid or "DEPOSITO")
+        fin_bt = (self._bt_fin_nid
                   or (destinos[0] if destinos else list(self.grafo.nodos.keys())[2]))
-        ini_bt = self.cb_bt_ini.currentText() or "DEPOSITO"
         self._write(self.txt_res, "⏳ Comparando todos los algoritmos…")
 
         def _fn():
@@ -1163,14 +1380,83 @@ class App(QMainWindow):
         self._write(self.txt_bus, txt)
 
     def _buscar_lineal_sec(self):
-        sec = self.cb_sec.currentText()
-        rs  = busqueda_lineal_sector(self.pedidos, sec)
-        txt = f"🗺 Búsqueda por sector — O(n)\nSector: {sec}\n\n"
-        txt += "\n".join(
-            f"  • {p.id} | {p.cliente} | {PRIORIDAD_LABEL[p.prioridad]}"
-            for p in rs
-        ) if rs else "❌ Sin resultados para este sector."
+        # kept for compatibility — delegates to new method
+        self._buscar_por_zona()
+
+    def _buscar_por_zona(self):
+        zona = self.cb_sec.currentText()
+        nids_zona = self.grafo.nodos_en_zona(zona)
+        pedidos_zona = [p for p in self.pedidos if p.nodo_destino in nids_zona]
+        txt = (f"🗺 Búsqueda por Zona — {zona}  (Divide y Vencerás)\n"
+               f"Nodos en zona: {len(nids_zona)} | "
+               f"Pedidos en zona: {len(pedidos_zona)}\n"
+               f"{'─'*50}\n")
+        if pedidos_zona:
+            for p in pedidos_zona:
+                nd = self.grafo.nodos.get(p.nodo_destino)
+                loc = nd.nombre[:30] if nd else p.nodo_destino
+                txt += (f"  • {p.id} | {p.cliente} | "
+                        f"{PRIORIDAD_LABEL[p.prioridad]} | "
+                        f"S/.{p.valor} | {loc}\n")
+        else:
+            txt += "  Sin pedidos en esta zona.\n"
         self._write(self.txt_bus, txt)
+
+    def _visualizar_zona(self):
+        zona = self.cb_sec.currentText()
+        ZONA_COLORES = {"OESTE": "#3498db", "CENTRO": "#2ecc71", "ESTE": "#e67e22"}
+        color = ZONA_COLORES.get(zona, "#aaaaaa")
+        nids_zona = self.grafo.nodos_en_zona(zona)
+        self.actualizar_mapa_interactivo(zona_resaltada=(zona, nids_zona, color))
+        self._write(self.txt_bus,
+                    f"🗺 Zona {zona} resaltada en el mapa\n"
+                    f"Nodos: {len(nids_zona)}")
+
+    def _desbloquear_seleccionado(self):
+        item = self.lst_blq.currentItem()
+        if not item:
+            QMessageBox.information(self, "", "Selecciona una calle de la lista primero.")
+            return
+        row = self.lst_blq.currentRow()
+        if 0 <= row < len(self._bloqueadas):
+            par = self._bloqueadas[row]
+            self.grafo.desbloquear_calle(*par)
+            self._bloqueadas.pop(row)
+            self.lst_blq.takeItem(row)
+            self.actualizar_mapa_interactivo()
+
+    def _agregar_repartidor(self):
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Nuevo Repartidor")
+        dlg.setStyleSheet(f"background:{BG_PANEL}; color:{TEXT_MAIN};")
+        dlg.setFixedWidth(300)
+        form = QFormLayout(dlg)
+        e_nom = _entry("Nombre"); e_cap = _entry("30.0"); e_vol = _entry("60.0")
+        form.addRow(_lbl("Nombre:", 9, False, TEXT_DIM), e_nom)
+        form.addRow(_lbl("Cap. peso kg:", 9, False, TEXT_DIM), e_cap)
+        form.addRow(_lbl("Cap. vol L:", 9, False, TEXT_DIM), e_vol)
+        bbs = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        bbs.accepted.connect(dlg.accept)
+        bbs.rejected.connect(dlg.reject)
+        bbs.setStyleSheet(f"color:{TEXT_MAIN};")
+        form.addRow(bbs)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        nombre = e_nom.text().strip() or "Repartidor"
+        try:
+            cap_p = float(e_cap.text() or "30")
+            cap_v = float(e_vol.text() or "60")
+        except ValueError:
+            cap_p, cap_v = 30.0, 60.0
+        dep = next((n for n in self.grafo.nodos.values() if n.es_deposito), None)
+        nid_dep = dep.id if dep else list(self.grafo.nodos.keys())[0]
+        rid = f"R{len(self.repartidores)+1}"
+        self.repartidores.append(
+            Repartidor(rid, nombre, nid_dep, cap_p, cap_v, 25.0))
+        self.cb_rep.addItem(f"{rid} – {nombre}")
 
     def _run_huffman(self):
         txt = self.e_huf.text().strip()
@@ -1180,89 +1466,55 @@ class App(QMainWindow):
 
     # ══ ACCIONES GRAFO ═══════════════════════════════════════
 
-    def _run_coloreo(self):
-        self._write(self.txt_grafo, "⏳ Calculando coloreo…")
-        def _fn():
-            return self.grafo.obtener_coloreo(recalcular=True)
-        def _on_done(coloreo):
-            n_colores = max(coloreo.values()) + 1 if coloreo else 0
-            self._write(self.txt_grafo,
-                        f"✅ Coloreo Welsh-Powell — O(V²+E)\n"
-                        f"Colores usados: {n_colores}\n"
-                        f"Nodos coloreados: {len(coloreo)}")
-            if self._coloreo_on:
-                self.actualizar_mapa_interactivo(coloreo=coloreo)
-        self._run_en_hilo(_fn, _on_done)
-
-    def _toggle_coloreo(self, state):
-        self._coloreo_on = bool(state)
-        if self._coloreo_on:
-            coloreo = self.grafo.obtener_coloreo()
-            self.actualizar_mapa_interactivo(coloreo=coloreo)
-        else:
-            self.actualizar_mapa_interactivo()
-
     def _run_par_cercano(self):
-        self._write(self.txt_grafo, "⏳ Calculando par más cercano…")
+        """Par más cercano solo entre nodos con pedidos activos + depósito."""
+        nids_activos = list({p.nodo_destino for p in self.pedidos
+                             if p.nodo_destino in self.grafo.nodos})
+        dep = next((n.id for n in self.grafo.nodos.values() if n.es_deposito), None)
+        if dep:
+            nids_activos.append(dep)
+        nids_activos = list(set(nids_activos))
+        if len(nids_activos) < 2:
+            self._write(self.txt_grafo,
+                        "⚠ Necesitas al menos 2 pedidos para calcular el par más cercano.")
+            return
+        self._write(self.txt_grafo,
+                    f"⏳ Calculando par más cercano entre {len(nids_activos)} nodos activos…")
         def _fn():
-            return self.grafo.par_nodos_mas_cercanos()
+            return self.grafo.par_nodos_mas_cercanos(nids_activos)
         def _on_done(res):
             dist, a, b = res
             na, nb = self.grafo.nodos[a], self.grafo.nodos[b]
             self._write(self.txt_grafo,
                         f"✅ Par de Puntos Más Cercanos — O(n log n)\n"
-                        f"Nodo A : {a} — {na.nombre}\n"
-                        f"Nodo B : {b} — {nb.nombre}\n"
+                        f"Solo considera nodos con pedidos activos + depósito.\n\n"
+                        f"Nodo A : {na.nombre}\n"
+                        f"Nodo B : {nb.nombre}\n"
                         f"Distancia px: {dist:.1f}")
             self.actualizar_mapa_interactivo(par_cercano=(a, b))
         self._run_en_hilo(_fn, _on_done)
 
     def _run_merge_nodos(self):
-        nodos_ord = self.grafo.nodos_ordenados_por("x")
-        lineas = [f"✅ Merge Sort nodos por X — O(n log n)",
-                  f"Total: {len(nodos_ord)} nodos", ""]
-        for n in nodos_ord[:15]:
-            lineas.append(f"  {n.id:<20} x={n.x:>4}  lat={n.lat:.5f}")
-        if len(nodos_ord) > 15:
-            lineas.append(f"  … ({len(nodos_ord)-15} más)")
-        self._write(self.txt_grafo, "\n".join(lineas))
-
-    def _run_expo(self):
-        from grafo_osm import expo_rapida
-        lineas = ["✅ Exponenciación Rápida — O(log e)", ""]
-        for base, exp in [(2, 10), (1.5, 20), (1.0001, 500)]:
-            res = expo_rapida(base, exp)
-            lineas.append(f"  {base}^{exp} = {res:.6f}")
+        """Merge Sort solo sobre nodos presentes (depósito + destinos de pedidos)."""
+        nids_activos = list({p.nodo_destino for p in self.pedidos
+                             if p.nodo_destino in self.grafo.nodos})
+        dep = next((n for n in self.grafo.nodos.values() if n.es_deposito), None)
+        nodos_act = [self.grafo.nodos[n] for n in nids_activos]
+        if dep and dep.id not in nids_activos:
+            nodos_act.append(dep)
+        from grafo_osm import merge_sort_nodos
+        nodos_ord = merge_sort_nodos(nodos_act, "x")
+        lineas = [f"✅ Merge Sort nodos activos por X — O(n log n)",
+                  f"Mostrando {len(nodos_ord)} nodo(s) presentes:", ""]
+        for n in nodos_ord:
+            tag = "🏭" if n.es_deposito else "📦"
+            lineas.append(f"  {tag} {n.nombre[:35]}")
+            lineas.append(f"     lat={n.lat:.5f}, lon={n.lon:.5f}")
         self._write(self.txt_grafo, "\n".join(lineas))
 
     # ══ ACCIONES CONFIG ══════════════════════════════════════
 
-    def _bloquear(self):
-        val   = self.cb_blq.currentText()
-        parts = [p.strip() for p in val.split("↔")]
-        if len(parts) == 2:
-            par = (parts[0], parts[1])
-            if par not in self._bloqueadas:
-                self._bloqueadas.append(par)
-                self.grafo.bloquear_calle(*par)
-                self.lst_blq.addItem(f"{par[0]} ↔ {par[1]}")
-                self.actualizar_mapa_interactivo()
-
-    def _desbloquear(self):
-        val   = self.cb_blq.currentText()
-        parts = [p.strip() for p in val.split("↔")]
-        if len(parts) == 2:
-            par = (parts[0], parts[1])
-            if par in self._bloqueadas:
-                self._bloqueadas.remove(par)
-                self.grafo.desbloquear_calle(*par)
-                items = [self.lst_blq.item(i).text()
-                         for i in range(self.lst_blq.count())]
-                self.lst_blq.clear()
-                for item in items:
-                    if item != f"{par[0]} ↔ {par[1]}":
-                        self.lst_blq.addItem(item)
-                self.actualizar_mapa_interactivo()
+    # ── fin acciones config ───────────────────────────────────
 
 
 # ─────────────────────────── Entry point ─────────────────────────────────────

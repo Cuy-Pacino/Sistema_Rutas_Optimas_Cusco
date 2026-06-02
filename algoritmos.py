@@ -583,41 +583,82 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
                                     max_rutas: int = 20
                                     ) -> ResultadoAlgoritmo:
     """
-    Encuentra TODAS las rutas posibles de inicio a fin
-    evitando calles bloqueadas, retorna la más corta.
-    Poda: abandona ramas cuya distancia supera 150% del mejor hallado.
-    Complejidad: O(V!) peor caso, O(ramificación^profundidad) con poda.
+    Encuentra rutas de inicio→fin evitando calles bloqueadas, devuelve la más corta.
+
+    Estrategia de poda doble para grafos grandes (3 000+ nodos):
+      1. Poda por cota de Dijkstra: se calcula la ruta óptima con Dijkstra sin
+         restricciones (O((V+E) log V)). Cualquier rama que supere 1.3× esa
+         distancia se abandona de inmediato.
+      2. Poda por profundidad: la rama no puede tener más nodos que la ruta
+         Dijkstra + un margen fijo (max_saltos_extra), evitando ciclos largos.
+      3. Límite max_rutas: para el backtrack en cuanto se tienen suficientes rutas.
+
+    Complejidad real: O(b^d) con b≈3 (grado medio) y d = len(ruta_dijkstra)+margen.
+    Sin podas sería O(V!) — inviable con miles de nodos.
     """
     t0 = time.perf_counter()
 
+    # ── Bloquear calles ───────────────────────────────────────────────
     for o, d in calles_bloqueadas:
         grafo.bloquear_calle(o, d)
 
-    todas_rutas: list[list[str]]  = []
-    todas_dists: list[float]      = []
+    # ── Cota superior: ruta Dijkstra (ignora bloqueos de BT) ─────────
+    ruta_dijk, dist_dijk = grafo.dijkstra(inicio, fin)
+    if dist_dijk == float("inf") or not ruta_dijk:
+        for o, d in calles_bloqueadas:
+            grafo.desbloquear_calle(o, d)
+        t1 = time.perf_counter()
+        return ResultadoAlgoritmo(
+            nombre_algoritmo="Backtracking",
+            ruta=[], distancia_total=float("inf"),
+            tiempo_total=float("inf"),
+            pedidos_incluidos=[], valor_total=0,
+            tiempo_computo=t1 - t0,
+            notas=f"❌ No existe camino de {inicio} a {fin} (ni Dijkstra lo encontró).",
+            complejidad_big_o="O(b^d)"
+        )
+
+    # Cota de distancia y profundidad
+    cota_dist   = dist_dijk * 1.3             # no explorar ramas > 130% de óptimo
+    max_saltos  = len(ruta_dijk) + 6          # profundidad máxima razonable
+
+    todas_rutas: list[list[str]] = []
+    todas_dists: list[float]     = []
 
     def backtrack(nodo: str, ruta: list[str],
                   dist_acum: float, visitados: set[str]):
-        if len(todas_rutas) >= max_rutas:                       # O(1) — límite de exploración
+        # ── Poda 1: límite de rutas encontradas ─────────────────
+        if len(todas_rutas) >= max_rutas:
             return
-        if nodo == fin:                                         # O(1) — caso base
+        # ── Caso base: llegamos al destino ───────────────────────
+        if nodo == fin:
             todas_rutas.append(list(ruta))
             todas_dists.append(dist_acum)
             return
-        # Poda por distancia
-        if todas_dists and dist_acum >= min(todas_dists) * 1.5: # O(rutas) — poda de rama
+        # ── Poda 2: profundidad máxima ───────────────────────────
+        if len(ruta) >= max_saltos:
             return
-        for vecino, dist, _, _ in grafo.vecinos(nodo):         # O(grado) — expansión de vecinos
-            if vecino not in visitados:                         # O(1) — lookup en set
+        # ── Poda 3: distancia acumulada supera cota ──────────────
+        if dist_acum >= cota_dist:
+            return
+        # ── Poda 4: si ya encontramos una buena ruta, podar a 1.1× ─
+        if todas_dists and dist_acum >= min(todas_dists) * 1.1:
+            return
+        # ── Expansión: vecinos ordenados por distancia (mejor primero) ─
+        vecinos = sorted(grafo.vecinos(nodo), key=lambda x: x[1])
+        for vecino, dist, _, _ in vecinos:
+            if vecino not in visitados:
                 visitados.add(vecino)
                 ruta.append(vecino)
-                backtrack(vecino, ruta, dist_acum + dist, visitados)  # recursión
+                backtrack(vecino, ruta, dist_acum + dist, visitados)
                 ruta.pop()
                 visitados.remove(vecino)
-# --- Análisis Backtracking ---
-# Sin poda: O(V!) — explora todas las permutaciones de nodos
-# Con poda 1.5×mejor: O(b^d), b = factor ramificación, d = profundidad media
-# En la práctica mucho menor que O(V!) gracias al límite max_rutas y la poda
+
+# --- Análisis Big-O ---
+# Poda por cota Dijkstra + profundidad + 1.1× mejor:
+#   O(b^d) con b≈3 (grado medio San Sebastián), d = len(ruta_optima)+6
+# Dijkstra previo: O((V+E) log V)
+# Total efectivo: O((V+E) log V + b^d) ≪ O(V!)
 
     backtrack(inicio, [inicio], 0.0, {inicio})
 
@@ -629,11 +670,14 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
     if not todas_rutas:
         return ResultadoAlgoritmo(
             nombre_algoritmo="Backtracking",
-            ruta=[], distancia_total=float("inf"),
-            tiempo_total=float("inf"),
+            ruta=ruta_dijk,   # devolver Dijkstra como fallback
+            distancia_total=dist_dijk,
+            tiempo_total=dist_dijk / 416.0,
             pedidos_incluidos=[], valor_total=0,
             tiempo_computo=t1 - t0,
-            notas=f"❌ Sin ruta posible de {inicio} a {fin}."
+            notas=f"⚠ Backtracking sin rutas alternativas con restricciones. "
+                  f"Se usa ruta Dijkstra ({inicio}→{fin}).",
+            complejidad_big_o="O(b^d)"
         )
 
     idx     = todas_dists.index(min(todas_dists))
@@ -651,8 +695,10 @@ def backtracking_rutas_restringidas(grafo: GrafoSanSebastian,
         notas=(
             f"Rutas exploradas: {len(todas_rutas)} | "
             f"Nodos en ruta óptima: {len(ruta_op)} | "
+            f"Cota Dijkstra: {dist_dijk:.0f}m × 1.3 | "
             f"Bloqueadas: {[(o+chr(8596)+d) for o,d in calles_bloqueadas] or 'ninguna'}"
-        )
+        ),
+        complejidad_big_o="O(b^d)"
     )
 
 
