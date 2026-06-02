@@ -1,21 +1,15 @@
 """
 grafo_osm.py
 Grafo real de calles — San Sebastián, Cusco.
-Basado en OpenStreetMap via OSMnx + NetworkX.
+Basado exclusivamente en OpenStreetMap via OSMnx + NetworkX.
 Programación III — UNSAAC 2026
 
-Reemplaza a grafo_san_sebastian.py manteniendo la misma interfaz
-pública para que algoritmos.py y gui.py funcionen sin modificación.
-
-Dependencias:
-    pip install osmnx networkx shapely
-
-Algoritmos propios incorporados (igual que el original):
-  • Dijkstra propio          — O((V+E) log V)   sobre el grafo OSM
-  • Par de Puntos Más Cercanos — O(n log n)      divide y vencerás geométrico
-  • Coloreo Welsh-Powell     — O(V²+E)           sobre adyacencia OSM
-  • Merge Sort               — O(n log n)        ordenar nodos por coordenada
-  • Exponenciación Rápida    — O(log e)          penalización por tramos
+Algoritmos propios incorporados:
+  • Dijkstra propio          — O((V+E) log V)
+  • Par de Puntos Más Cercanos — O(n log n)   divide y vencerás geométrico
+  • Coloreo Welsh-Powell     — O(V²+E)
+  • Merge Sort               — O(n log n)     ordenar nodos por coordenada
+  • Exponenciación Rápida    — O(log e)       penalización por tramos
 """
 
 from __future__ import annotations
@@ -25,18 +19,10 @@ import heapq
 import time
 import os
 import pickle
-import logging
-from dataclasses import dataclass, field
 from typing import Optional
 
 import networkx as nx
-
-# OSMnx es la única dependencia nueva; se importa con manejo de error claro.
-try:
-    import osmnx as ox
-    _OSMNX_OK = True
-except ImportError:
-    _OSMNX_OK = False
+import osmnx as ox
 
 from modelos import Nodo, Arista
 
@@ -44,33 +30,26 @@ from modelos import Nodo, Arista
 #  CONFIGURACIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Lugar a consultar en OpenStreetMap. Puedes cambiarlo si necesitas otra zona.
 _PLACE_QUERY = "San Sebastián, Cusco, Peru"
 
-# OSMnx configuración recomendada
-if _OSMNX_OK:
-    ox.settings.log_console = False
-    ox.settings.use_cache   = True           # cachea en disco automáticamente
-    ox.settings.timeout     = 60
+ox.settings.log_console   = False
+ox.settings.use_cache     = True
+ox.settings.timeout       = 90
 
-# Caché local adicional (grafo procesado → .pkl) para no re-procesar en cada run.
 _CACHE_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache_osm")
-_CACHE_FILE = os.path.join(_CACHE_DIR, "san_sebastian_grafo.pkl")
+_CACHE_FILE = os.path.join(_CACHE_DIR, "san_sebastian_v3.pkl")
 
-# Proyección canvas — se recalcula dinámicamente según el bounding box del grafo.
 CANVAS_W = 900
 CANVAS_H = 650
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  ZONAS GEOGRÁFICAS (latitudes/longitudes aproximadas de San Sebastián)
-#  Los nodos se asignan automáticamente según su longitud.
-# ─────────────────────────────────────────────────────────────────────────────
+# Umbrales de longitud para dividir en 3 zonas (San Sebastián: ~-71.975 → -71.920)
+_LON_OESTE_LIM = -71.960
+_LON_ESTE_LIM  = -71.935
 
-# Umbral de longitud para dividir Oeste / Centro / Este
-# San Sebastián se extiende aprox. entre lon -71.975 y -71.920
-_LON_OESTE_LIM  = -71.960   # más al oeste que esto → OESTE
-_LON_ESTE_LIM   = -71.935   # más al este que esto  → ESTE
-# entre _LON_OESTE_LIM y _LON_ESTE_LIM → CENTRO
+# Depósito por defecto: cruce Av. La Cultura con límite de San Sebastián
+_DEPOSITO_LAT =  -13.5178
+_DEPOSITO_LON =  -71.9490
+
 
 def _zona_de_lon(lon: float) -> str:
     if lon < _LON_OESTE_LIM:
@@ -79,16 +58,11 @@ def _zona_de_lon(lon: float) -> str:
         return "ESTE"
     return "CENTRO"
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  EXPONENCIACIÓN RÁPIDA — O(log e)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def expo_rapida(base: float, exp: int) -> float:
-    """
-    Calcula base^exp en O(log exp) multiplicaciones.
-    Algoritmo square-and-multiply.
-    """
     resultado = 1.0
     base = float(base)
     while exp > 0:
@@ -102,16 +76,13 @@ def expo_rapida(base: float, exp: int) -> float:
 def penalizacion_distancia(distancia_m: float,
                            factor: float = 1.0001,
                            tramos: int = 1) -> float:
-    """Penalización suave por número de tramos recorridos."""
     return distancia_m * expo_rapida(factor, tramos)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  MERGE SORT DE NODOS — O(n log n)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def merge_sort_nodos(nodos: list[Nodo], clave: str = "x") -> list[Nodo]:
-    """Merge Sort estable sobre Nodos. clave: 'x'|'y'|'lat'|'lon'"""
     if len(nodos) <= 1:
         return nodos
     mid = len(nodos) // 2
@@ -131,7 +102,6 @@ def _merge(izq: list[Nodo], der: list[Nodo], clave: str) -> list[Nodo]:
     resultado.extend(der[j:])
     return resultado
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  PAR DE PUNTOS MÁS CERCANOS — O(n log n)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +111,6 @@ def _dist_euclidea(a: Nodo, b: Nodo) -> float:
 
 
 def _closest_fuerza_bruta(pts: list[Nodo]) -> tuple[float, Nodo, Nodo]:
-    """Fuerza bruta O(n²) para n ≤ 3."""
     min_d, p1, p2 = float("inf"), pts[0], pts[0]
     for i in range(len(pts)):
         for j in range(i + 1, len(pts)):
@@ -179,30 +148,19 @@ def _closest_rec(pts_x: list[Nodo]) -> tuple[float, Nodo, Nodo]:
 
 
 def par_mas_cercano(nodos: list[Nodo]) -> tuple[float, Nodo, Nodo]:
-    """Par de Puntos Más Cercanos — O(n log n). Retorna (dist_px, nodo_A, nodo_B)."""
+    """Par de Puntos Más Cercanos — O(n log n)."""
     if len(nodos) < 2:
         raise ValueError("Se necesitan al menos 2 nodos.")
     return _closest_rec(merge_sort_nodos(list(nodos), "x"))
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  COLOREO DE GRAFOS — Welsh-Powell  O(V²+E)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def coloreo_grafos(adyacencia: dict[str, list]) -> dict[str, int]:
-    """
-    Welsh-Powell:
-      1. Quick Sort de vértices por grado descendente.
-      2. Asignar el menor color disponible que no colisione con vecinos.
-    Retorna {nodo_id → color_int (0-based)}.
-    """
-    # Calcular grados
     grados = {v: len(vecinos) for v, vecinos in adyacencia.items()}
-
-    # Quick Sort por grado descendente (propio)
     vertices = list(grados.keys())
     _qs_grados(vertices, 0, len(vertices) - 1, grados)
-
     colores: dict[str, int] = {}
     for v in vertices:
         vecinos_colores = {
@@ -216,42 +174,29 @@ def coloreo_grafos(adyacencia: dict[str, list]) -> dict[str, int]:
     return colores
 
 
-def _qs_grados(arr: list[str], lo: int, hi: int,
-               grados: dict[str, int]):
-    """Quick Sort in-place descendente por grado."""
+def _qs_grados(arr, lo, hi, grados):
     if lo < hi:
         p = _part_grados(arr, lo, hi, grados)
         _qs_grados(arr, lo, p - 1, grados)
         _qs_grados(arr, p + 1, hi, grados)
 
 
-def _part_grados(arr: list[str], lo: int, hi: int,
-                 grados: dict[str, int]) -> int:
+def _part_grados(arr, lo, hi, grados):
     pivot = grados[arr[(lo + hi) // 2]]
     arr[(lo + hi) // 2], arr[hi] = arr[hi], arr[(lo + hi) // 2]
     i = lo - 1
     for j in range(lo, hi):
-        if grados[arr[j]] >= pivot:   # descendente
+        if grados[arr[j]] >= pivot:
             i += 1
             arr[i], arr[j] = arr[j], arr[i]
     arr[i + 1], arr[hi] = arr[hi], arr[i + 1]
     return i + 1
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-#  UTILIDADES DE CONVERSIÓN OSMnx ↔ Nodo/Arista propio
+#  UTILIDADES DE CONVERSIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _nodo_id_from_osmid(osmid: int) -> str:
-    """Convierte el osmid numérico en string corto para la GUI."""
-    return f"N{osmid}"
-
-
-def _latlon_a_px(lat: float, lon: float,
-                 lat_min: float, lat_max: float,
-                 lon_min: float, lon_max: float,
-                 margin: int = 50) -> tuple[int, int]:
-    """Proyecta lat/lon a coordenadas pixel del canvas."""
+def _latlon_a_px(lat, lon, lat_min, lat_max, lon_min, lon_max, margin=50):
     w = CANVAS_W - 2 * margin
     h = CANVAS_H - 2 * margin
     x = int(margin + (lon - lon_min) / max(lon_max - lon_min, 1e-9) * w)
@@ -260,24 +205,13 @@ def _latlon_a_px(lat: float, lon: float,
 
 
 def _nombre_calle_osm(datos: dict) -> str:
-    """Extrae el nombre de la calle de los atributos de la arista OSM."""
     name = datos.get("name", "")
     if isinstance(name, list):
         name = name[0]
     return name or datos.get("highway", "calle")
 
 
-def _distancia_m(datos: dict) -> float:
-    """Longitud de la arista en metros."""
-    length = datos.get("length", 0.0)
-    return float(length) if length else 0.0
-
-
 def _velocidad_kmh(datos: dict) -> float:
-    """
-    Velocidad estimada según tipo de vía (highway).
-    Se usa para calcular tiempo de recorrido.
-    """
     highway = datos.get("highway", "residential")
     if isinstance(highway, list):
         highway = highway[0]
@@ -286,314 +220,147 @@ def _velocidad_kmh(datos: dict) -> float:
         "secondary": 40, "tertiary": 30,
         "residential": 20, "living_street": 10,
         "service": 15, "unclassified": 20,
-        "footway": 5, "path": 5, "cycleway": 15,
     }
     return tabla.get(highway, 20)
 
-
-def _tiempo_min(distancia_m: float, velocidad_kmh: float) -> float:
-    """Tiempo de recorrido en minutos."""
-    if velocidad_kmh <= 0:
-        return distancia_m / 416.0   # fallback: ~25 km/h en m/min
-    return (distancia_m / 1000.0) / velocidad_kmh * 60.0
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-#  GRAFO FALLBACK (sin OSMnx) — nodos manuales de San Sebastián
-#  Se usa cuando osmnx no está instalado o la descarga falla.
+#  ZONAS PÚBLICAS
 # ─────────────────────────────────────────────────────────────────────────────
 
-_FALLBACK_NODOS = [
-    # (id_str, nombre, lat, lon, es_deposito)
-    ("DEPOSITO",    "Depósito Central (Av. La Cultura)",    -13.5178, -71.9490, True),
-    ("PLAZA_SS",    "Plaza Principal San Sebastián",         -13.5312, -71.9493, False),
-    ("MERCADO",     "Mercado San Sebastián",                 -13.5330, -71.9510, False),
-    ("HOSP_SS",     "Centro de Salud San Sebastián",         -13.5295, -71.9472, False),
-    ("IGLESIA_SS",  "Iglesia San Sebastián",                 -13.5308, -71.9498, False),
-    ("TTIKA",       "Sector Ttica Ttica",                    -13.5300, -71.9560, False),
-    ("CLORINDA",    "Urb. Clorinda Matto de Turner",         -13.5250, -71.9460, False),
-    ("AV_CULTURA",  "Av. La Cultura (cruce San Sebastián)",  -13.5190, -71.9580, False),
-    ("URB_MAG",     "Urb. Magisterio",                       -13.5210, -71.9510, False),
-    ("PROLONGACION","Prolongación Av. La Cultura",           -13.5230, -71.9540, False),
-    ("MANUEL_P",    "Av. Manuel Prado (ingreso oeste)",      -13.5260, -71.9600, False),
-    ("LARAPA",      "Urb. Larapa",                           -13.5270, -71.9420, False),
-    ("LARAPA_GR",   "Larapa Grande",                         -13.5255, -71.9385, False),
-    ("VILLA_SOL",   "Villa El Sol",                          -13.5360, -71.9480, False),
-    ("SANTA_ANA",   "Santa Ana – San Sebastián",             -13.5350, -71.9430, False),
-    ("PATA_PATA",   "Pata Pata (zona alta este)",            -13.5380, -71.9390, False),
-    ("WIMPILLAY",   "Wimpillay",                             -13.5420, -71.9480, False),
-    ("ANGOSTURA",   "Angostura",                             -13.5400, -71.9550, False),
-    ("KENAJPATA",   "Kenajpata",                             -13.5500, -71.9450, False),
-    ("PASO_SUYO",   "Paso Suyos",                            -13.5480, -71.9520, False),
-]
-
-_FALLBACK_ARISTAS = [
-    ("DEPOSITO","AV_CULTURA",600,3.0,"Av. La Cultura"),
-    ("DEPOSITO","URB_MAG",700,3.5,"Av. La Cultura"),
-    ("DEPOSITO","PROLONGACION",800,4.0,"Prolongación Av. La Cultura"),
-    ("AV_CULTURA","URB_MAG",500,3.0,"Jr. Los Pinos"),
-    ("AV_CULTURA","MANUEL_P",600,3.5,"Av. Manuel Prado"),
-    ("AV_CULTURA","PROLONGACION",400,2.5,"Prolongación La Cultura"),
-    ("URB_MAG","CLORINDA",400,2.5,"Jr. Magisterio"),
-    ("PROLONGACION","PLAZA_SS",700,4.0,"Av. San Sebastián"),
-    ("PROLONGACION","TTIKA",600,3.5,"Jr. Ttica Ttica"),
-    ("MANUEL_P","PLAZA_SS",500,3.0,"Jr. Manuel Prado"),
-    ("PLAZA_SS","MERCADO",350,2.0,"Jr. del Cementerio"),
-    ("PLAZA_SS","HOSP_SS",400,2.5,"Jr. Municipalidad"),
-    ("PLAZA_SS","IGLESIA_SS",150,1.0,"Jr. frente Iglesia"),
-    ("PLAZA_SS","CLORINDA",500,3.0,"Jr. Clorinda"),
-    ("IGLESIA_SS","MERCADO",300,2.0,"Jr. del Mercado"),
-    ("HOSP_SS","CLORINDA",500,3.0,"Jr. Salud"),
-    ("TTIKA","MERCADO",500,3.0,"Jr. Mercado"),
-    ("HOSP_SS","LARAPA",700,4.0,"Jr. Larapa"),
-    ("MERCADO","VILLA_SOL",700,4.0,"Av. Prol. San Sebastián"),
-    ("PLAZA_SS","SANTA_ANA",600,3.5,"Jr. Santa Ana"),
-    ("CLORINDA","LARAPA",550,3.0,"Camino a Larapa"),
-    ("LARAPA","LARAPA_GR",500,3.0,"Camino Larapa Grande"),
-    ("LARAPA","SANTA_ANA",800,4.5,"Jr. Larapa Baja"),
-    ("LARAPA","PATA_PATA",900,5.0,"Subida Larapa"),
-    ("LARAPA_GR","PATA_PATA",700,4.0,"Subida Larapa Grande"),
-    ("VILLA_SOL","WIMPILLAY",600,3.5,"Pasaje El Sol"),
-    ("VILLA_SOL","ANGOSTURA",700,4.0,"Camino Angostura"),
-    ("SANTA_ANA","PATA_PATA",700,4.5,"Subida Santa Ana"),
-    ("SANTA_ANA","WIMPILLAY",650,4.0,"Jr. Santa Ana Sur"),
-    ("ANGOSTURA","PASO_SUYO",900,5.5,"Camino Paso Suyo"),
-    ("WIMPILLAY","KENAJPATA",800,5.0,"Camino a Kenajpata"),
-    ("WIMPILLAY","PASO_SUYO",700,4.5,"Jr. Wimpillay"),
-    ("PASO_SUYO","KENAJPATA",700,4.5,"Pasaje Sur"),
-    ("PATA_PATA","KENAJPATA",1100,7.0,"Camino de altura"),
-    ("TTIKA","ANGOSTURA",600,3.5,"Jr. Ttica Ttica Sur"),
-]
-
-
-def _construir_fallback() -> tuple[dict[str, Nodo], list[Arista], dict[str, set]]:
-    """Construye el grafo manual cuando OSMnx no está disponible."""
-    lats = [r[2] for r in _FALLBACK_NODOS]
-    lons = [r[3] for r in _FALLBACK_NODOS]
-    lat_min, lat_max = min(lats), max(lats)
-    lon_min, lon_max = min(lons), max(lons)
-
-    nodos: dict[str, Nodo] = {}
-    for id_, nombre, lat, lon, dep in _FALLBACK_NODOS:
-        x, y = _latlon_a_px(lat, lon, lat_min, lat_max, lon_min, lon_max)
-        nodos[id_] = Nodo(id=id_, nombre=nombre, lat=lat, lon=lon,
-                          x=x, y=y, es_deposito=dep)
-
-    aristas = [
-        Arista(origen=o, destino=d, distancia=dist, tiempo=t,
-               bidireccional=True, nombre_calle=c)
-        for o, d, dist, t, c in _FALLBACK_ARISTAS
-    ]
-
-    zonas: dict[str, set] = {"OESTE": set(), "CENTRO": set(), "ESTE": set()}
-    for nid, nodo in nodos.items():
-        zonas[_zona_de_lon(nodo.lon)].add(nid)
-
-    return nodos, aristas, zonas
-
+ZONAS: dict[str, set] = {"OESTE": set(), "CENTRO": set(), "ESTE": set()}
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  DESCARGA Y PROCESAMIENTO DEL GRAFO OSMnx
+#  DESCARGA / CACHÉ DEL GRAFO OSMnx
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _descargar_o_cargar_grafo() -> tuple[dict[str, Nodo], list[Arista], dict[str, set], nx.MultiDiGraph | None]:
+def _descargar_o_cargar_grafo():
     """
-    Intenta cargar desde caché local primero, luego descarga de OSMnx.
-    Retorna (nodos, aristas, zonas, G_nx) donde G_nx puede ser None en fallback.
+    Devuelve (nodos, aristas, zonas, G_utm, G_geo).
+    G_utm  — MultiDiGraph proyectado a UTM (para cálculos de longitud).
+    G_geo  — MultiDiGraph en EPSG:4326 (lat/lon) para coordenadas reales.
+    Ambos tienen los mismos osmids como nodos.
     """
-    # ── Caché local ───────────────────────────────────────────
     if os.path.exists(_CACHE_FILE):
         try:
             with open(_CACHE_FILE, "rb") as f:
-                cached = pickle.load(f)
-            print(f"  [OSM] Grafo cargado desde caché: {_CACHE_FILE}")
-            return cached["nodos"], cached["aristas"], cached["zonas"], cached["G_nx"]
+                c = pickle.load(f)
+            print(f"  [OSM] Grafo cargado desde caché.")
+            return c["nodos"], c["aristas"], c["zonas"], c["G_utm"], c["G_geo"]
         except Exception as e:
-            print(f"  [OSM] Caché inválida, re-descargando: {e}")
+            print(f"  [OSM] Caché inválida ({e}), re-descargando…")
 
-    # ── Sin OSMnx → fallback ──────────────────────────────────
-    if not _OSMNX_OK:
-        print("  [OSM] osmnx no instalado → usando grafo manual de respaldo.")
-        nodos, aristas, zonas = _construir_fallback()
-        return nodos, aristas, zonas, None
+    print(f"  [OSM] Descargando '{_PLACE_QUERY}' desde OpenStreetMap…")
 
-    # ── Descarga desde OpenStreetMap ──────────────────────────
-    print(f"  [OSM] Descargando grafo de '{_PLACE_QUERY}' desde OpenStreetMap…")
-    try:
-        G_raw = ox.graph_from_place(
-            _PLACE_QUERY,
-            network_type="drive",
-            simplify=True,
-            retain_all=False,
-        )
-        
-        # --- EL FILTRO BRUTAL PARA QUE NO SE LAGEE ---
-        vias_importantes = ['primary', 'secondary', 'tertiary', 'residential', 'trunk']
-        aristas_filtradas = [
-            (u, v, k, d) for u, v, k, d in G_raw.edges(keys=True, data=True)
-            if d.get('highway') in vias_importantes
-        ]
-        
-        G = nx.MultiDiGraph()
-        for u, v, k, d in aristas_filtradas:
-            G.add_node(u, **G_raw.nodes[u])
-            G.add_node(v, **G_raw.nodes[v])
-            G.add_edge(u, v, key=k, **d)
-        # ---------------------------------------------
+    # 1. Descargar en CRS geográfico (EPSG:4326)
+    G_geo = ox.graph_from_place(
+        _PLACE_QUERY,
+        network_type="drive",
+        simplify=True,
+        retain_all=False,
+    )
+    G_geo = ox.truncate.largest_component(G_geo, strongly=True)
 
-        # Proyectar a UTM para tener distancias en metros exactas
-        G = ox.project_graph(G)
-        # Agregar atributo 'speed_kph' y 'travel_time' a todas las aristas
-        G = ox.add_edge_speeds(G)
-        G = ox.add_edge_travel_times(G)
+    # 2. Proyectar a UTM para cálculos de distancia/velocidad precisos
+    G_utm = ox.project_graph(G_geo)
+    G_utm = ox.routing.add_edge_speeds(G_utm)
+    G_utm = ox.routing.add_edge_travel_times(G_utm)
 
-    except Exception as e:
-        print(f"  [OSM] Error al descargar: {e}\n  → Usando grafo manual de respaldo.")
-        nodos, aristas, zonas = _construir_fallback()
-        return nodos, aristas, zonas, None
+    # 3. Pasar travel_time y speed_kph al grafo geo (mismos osmids)
+    for u, v, k, data in G_utm.edges(keys=True, data=True):
+        if G_geo.has_edge(u, v, k):
+            G_geo[u][v][k]["travel_time"] = data.get("travel_time", 0)
+            G_geo[u][v][k]["speed_kph"]   = data.get("speed_kph",   20)
+
+    nodos, aristas, zonas = _procesar_grafo(G_geo)
+
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    with open(_CACHE_FILE, "wb") as f:
+        pickle.dump({"nodos": nodos, "aristas": aristas,
+                     "zonas": zonas, "G_utm": G_utm, "G_geo": G_geo}, f)
+    print(f"  [OSM] Caché guardada.")
+    return nodos, aristas, zonas, G_utm, G_geo
 
 
-def _procesar_grafo_osm(G: nx.MultiDiGraph) -> tuple[dict[str, Nodo], list[Arista], dict[str, set]]:
+def _procesar_grafo(G_geo: nx.MultiDiGraph):
     """
-    Convierte el MultiDiGraph de OSMnx a nodos/aristas del sistema.
-
-    Estrategia de simplificación de IDs:
-      - osmid (entero) → "N{osmid}" como string
-      - El depósito se asigna al nodo más cercano a la Av. La Cultura
-        en los límites de San Sebastián.
+    Convierte G_geo (EPSG:4326) en las estructuras internas Nodo/Arista.
+    En EPSG:4326 los atributos de nodo son  y=lat, x=lon.
     """
-    # ── Bounding box para proyección pixel ───────────────────
-    lats = [data["lat"] for _, data in G.nodes(data=True) if "lat" in data]
-    lons = [data["lon"] for _, data in G.nodes(data=True) if "lon" in data]
-
-    # Si el grafo fue proyectado a UTM, recuperar lat/lon originales
-    if not lats:
-        G_latlon = ox.project_graph(G, to_crs="EPSG:4326")
-        lats = [data.get("y", 0) for _, data in G_latlon.nodes(data=True)]
-        lons = [data.get("x", 0) for _, data in G_latlon.nodes(data=True)]
-        lat_by_id  = {n: data.get("y", 0) for n, data in G_latlon.nodes(data=True)}
-        lon_by_id  = {n: data.get("x", 0) for n, data in G_latlon.nodes(data=True)}
-    else:
-        lat_by_id = {n: data["lat"] for n, data in G.nodes(data=True)}
-        lon_by_id = {n: data["lon"] for n, data in G.nodes(data=True)}
-
-    # Obtener lat/lon del grafo original (antes de proyectar a UTM)
-    G_geo = ox.project_graph(G, to_crs="EPSG:4326")
-    lat_by_id = {n: data.get("y", 0) for n, data in G_geo.nodes(data=True)}
-    lon_by_id = {n: data.get("x", 0) for n, data in G_geo.nodes(data=True)}
+    lat_by_id = {n: d["y"] for n, d in G_geo.nodes(data=True)}
+    lon_by_id = {n: d["x"] for n, d in G_geo.nodes(data=True)}
 
     lats = list(lat_by_id.values())
     lons = list(lon_by_id.values())
     lat_min, lat_max = min(lats), max(lats)
     lon_min, lon_max = min(lons), max(lons)
 
-    # ── Nodos ─────────────────────────────────────────────────
-    nodos: dict[str, Nodo] = {}
-
-    # Nodo de depósito: el más cercano a la coord de Av. La Cultura
-    DEPOSITO_LAT, DEPOSITO_LON = -13.5178, -71.9490
+    # Depósito: nodo más cercano a coordenada de referencia
     deposito_osmid = min(
-        lat_by_id.keys(),
-        key=lambda n: (lat_by_id[n] - DEPOSITO_LAT)**2 + (lon_by_id[n] - DEPOSITO_LON)**2
+        lat_by_id,
+        key=lambda n: (lat_by_id[n] - _DEPOSITO_LAT)**2
+                    + (lon_by_id[n] - _DEPOSITO_LON)**2
     )
 
-    # Limitar a los N nodos más "conectados" para no saturar la GUI.
-    # OSMnx puede devolver cientos de nodos; mantenemos los que tienen
-    # grado ≥ 2 (intersecciones reales) más el depósito.
-    nodos_relevantes = [
-        n for n, deg in dict(G.degree()).items() if deg >= 2
-    ]
-    if deposito_osmid not in nodos_relevantes:
-        nodos_relevantes.append(deposito_osmid)
+    # Conservar sólo nodos con degree ≥ 2 (intersecciones reales)
+    relevantes = {n for n, d in G_geo.degree() if d >= 2}
+    relevantes.add(deposito_osmid)
 
-    # Para los nodos relevantes, obtener nombres de calles cercanas
-    street_names_by_node: dict[int, str] = {}
-    for u, v, data in G.edges(data=True):
+    # Nombres de calle por nodo
+    nombres: dict[int, str] = {}
+    for u, v, data in G_geo.edges(data=True):
         name = _nombre_calle_osm(data)
-        if name and u in nodos_relevantes:
-            street_names_by_node.setdefault(u, name)
-        if name and v in nodos_relevantes:
-            street_names_by_node.setdefault(v, name)
+        if name:
+            nombres.setdefault(u, name)
+            nombres.setdefault(v, name)
 
-    for osmid in nodos_relevantes:
-        nid     = _nodo_id_from_osmid(osmid)
-        lat     = lat_by_id.get(osmid, 0)
-        lon     = lon_by_id.get(osmid, 0)
-        nombre  = street_names_by_node.get(osmid, f"Nodo {osmid}")
-        x, y    = _latlon_a_px(lat, lon, lat_min, lat_max, lon_min, lon_max)
-        es_dep  = (osmid == deposito_osmid)
+    # Mapa osmid → nid interno
+    id_map: dict[int, str] = {deposito_osmid: "DEPOSITO"}
+    for osmid in relevantes:
+        if osmid != deposito_osmid:
+            id_map[osmid] = f"N{osmid}"
+
+    # Construir nodos
+    nodos: dict[str, Nodo] = {}
+    for osmid in relevantes:
+        nid    = id_map[osmid]
+        lat    = lat_by_id[osmid]
+        lon    = lon_by_id[osmid]
+        nombre = "Depósito — Av. La Cultura" if osmid == deposito_osmid \
+                 else nombres.get(osmid, f"Intersección {nid}")
+        x, y   = _latlon_a_px(lat, lon, lat_min, lat_max, lon_min, lon_max)
         nodos[nid] = Nodo(id=nid, nombre=nombre, lat=lat, lon=lon,
-                          x=x, y=y, es_deposito=es_dep)
+                          x=x, y=y, es_deposito=(osmid == deposito_osmid))
 
-    # Asegurar que "DEPOSITO" siempre exista con ese ID fijo
-    dep_nid = _nodo_id_from_osmid(deposito_osmid)
-    if dep_nid in nodos:
-        dep_copy = nodos.pop(dep_nid)
-        dep_nuevo = Nodo(id="DEPOSITO", nombre="Depósito — Av. La Cultura",
-                         lat=dep_copy.lat, lon=dep_copy.lon,
-                         x=dep_copy.x, y=dep_copy.y, es_deposito=True)
-        nodos["DEPOSITO"] = dep_nuevo
-        _id_map = {deposito_osmid: "DEPOSITO"}
-    else:
-        _id_map = {deposito_osmid: "DEPOSITO"}
-
-    _id_map.update({
-        osmid: _nodo_id_from_osmid(osmid)
-        for osmid in nodos_relevantes
-        if osmid != deposito_osmid
-    })
-
-    # ── Aristas ───────────────────────────────────────────────
+    # Construir aristas (sin duplicar)
     aristas: list[Arista] = []
-    vistas: set[tuple[str, str]] = set()
-
-    for u, v, data in G.edges(data=True):
-        nid_u = _id_map.get(u)
-        nid_v = _id_map.get(v)
-        if nid_u is None or nid_v is None:
+    vistas: set[tuple] = set()
+    for u, v, data in G_geo.edges(data=True):
+        nu, nv = id_map.get(u), id_map.get(v)
+        if not nu or not nv or nu not in nodos or nv not in nodos:
             continue
-        if nid_u not in nodos or nid_v not in nodos:
-            continue
-
-        par = (min(nid_u, nid_v), max(nid_u, nid_v))
+        par = (min(nu, nv), max(nu, nv))
         if par in vistas:
             continue
         vistas.add(par)
-
-        dist_m  = _distancia_m(data)
-        vel_kmh = data.get("speed_kph", _velocidad_kmh(data))
-        t_min   = data.get("travel_time", _tiempo_min(dist_m, vel_kmh)) / 60.0
-        calle   = _nombre_calle_osm(data)
-
+        dist_m = float(data.get("length", 0) or 0)
+        vel    = float(data.get("speed_kph", _velocidad_kmh(data)) or 20)
+        t_min  = float(data.get("travel_time", 0) or 0) / 60.0
+        if t_min == 0 and dist_m > 0:
+            t_min = (dist_m / 1000.0) / vel * 60.0
         aristas.append(Arista(
-            origen=nid_u, destino=nid_v,
-            distancia=dist_m,
-            tiempo=t_min,
+            origen=nu, destino=nv,
+            distancia=dist_m, tiempo=t_min,
             bidireccional=True,
-            nombre_calle=calle,
+            nombre_calle=_nombre_calle_osm(data),
             bloqueada=False,
         ))
 
-    # ── Zonas (automáticas por longitud) ─────────────────────
+    # Zonas por longitud
     zonas: dict[str, set] = {"OESTE": set(), "CENTRO": set(), "ESTE": set()}
     for nid, nodo in nodos.items():
         zonas[_zona_de_lon(nodo.lon)].add(nid)
 
     return nodos, aristas, zonas
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  ZONAS (variable pública usada por algoritmos.py)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Se inicializa con el fallback para que los imports de módulo no fallen;
-# GrafoOSM.zonas contiene el valor real después de construir el grafo.
-ZONAS: dict[str, set] = {
-    "OESTE":  set(),
-    "CENTRO": set(),
-    "ESTE":   set(),
-}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CLASE PRINCIPAL
@@ -602,15 +369,13 @@ ZONAS: dict[str, set] = {
 class GrafoOSM:
     """
     Grafo de San Sebastián basado en OpenStreetMap (OSMnx + NetworkX).
+    Interfaz pública compatible con algoritmos.py.
 
-    Interfaz pública idéntica a GrafoSanSebastian para compatibilidad
-    con algoritmos.py y gui.py sin modificaciones.
-
-    Agrega:
-      • self.G_nx      — MultiDiGraph de NetworkX (None en fallback)
-      • self.zonas     — dict zona → set de nodo_ids
-      • self.fuente    — "osm" | "fallback"
-      • nx_shortest_path() — atajo a NetworkX para distancias exactas
+    Atributos extra:
+      G_utm  — MultiDiGraph UTM (NetworkX nativo, para algoritmos nx)
+      G_geo  — MultiDiGraph EPSG:4326 (lat/lon) para dibujar en Folium
+      zonas  — dict zona → set de nodo_ids
+      fuente — "osm"
     """
 
     def __init__(self, forzar_descarga: bool = False):
@@ -623,28 +388,49 @@ class GrafoOSM:
         self.nodos: dict[str, Nodo]
         self._aristas_raw: list[Arista]
         self.zonas: dict[str, set]
-        self.G_nx: nx.MultiDiGraph | None
+        self.G_utm: nx.MultiDiGraph
+        self.G_geo: nx.MultiDiGraph
 
-        self.nodos, self._aristas_raw, self.zonas, self.G_nx = \
-            _descargar_o_cargar_grafo()
+        (self.nodos, self._aristas_raw, self.zonas,
+         self.G_utm, self.G_geo) = _descargar_o_cargar_grafo()
 
-        self.fuente = "osm" if self.G_nx is not None else "fallback"
+        self.fuente = "osm"
 
-        # Actualizar ZONAS global (usado por algoritmos.py)
+        # Mapa osmid ↔ nid (para traducir rutas NetworkX ↔ nuestros IDs)
+        self._nid_a_osmid: dict[str, int] = {}
+        self._osmid_a_nid: dict[int, str] = {}
+        for osmid in self.G_geo.nodes():
+            nid = f"N{osmid}"
+            if nid in self.nodos:
+                self._nid_a_osmid[nid]   = osmid
+                self._osmid_a_nid[osmid] = nid
+        # DEPOSITO especial
+        dep = next((n for n in self.nodos.values() if n.es_deposito), None)
+        if dep:
+            osmid_dep = next(
+                (n for n in self.G_geo.nodes()
+                 if abs(self.G_geo.nodes[n].get("y",0) - dep.lat) < 0.00005
+                 and abs(self.G_geo.nodes[n].get("x",0) - dep.lon) < 0.00005),
+                None
+            )
+            if osmid_dep:
+                self._nid_a_osmid["DEPOSITO"]    = osmid_dep
+                self._osmid_a_nid[osmid_dep]     = "DEPOSITO"
+
+        # Actualizar ZONAS global
         ZONAS.clear()
         ZONAS.update(self.zonas)
 
-        # Construir adyacencia propia (misma estructura que el original)
+        # Adyacencia propia
         self.adyacencia: dict[str, list] = {nid: [] for nid in self.nodos}
         self._construir_adyacencia()
 
-        # Coloreo cacheado
         self._coloreo: dict[str, int] | None = None
 
         t1 = time.perf_counter()
         print(f"  [GrafoOSM] Listo — {len(self.nodos)} nodos, "
               f"{sum(len(v) for v in self.adyacencia.values())//2} aristas "
-              f"({self.fuente}) en {t1-t0:.2f}s")
+              f"en {t1-t0:.2f}s")
 
     # ── Construcción de adyacencia ────────────────────────────
 
@@ -657,16 +443,15 @@ class GrafoOSM:
                     self.adyacencia[a.destino].append(
                         (a.origen, a.distancia, a.tiempo, a.nombre_calle, a.bloqueada))
 
-    # ── API básica (misma que GrafoSanSebastian) ──────────────
+    # ── API básica ────────────────────────────────────────────
 
     def vecinos(self, nodo_id: str,
                 ignorar_bloqueadas: bool = True) -> list[tuple]:
-        resultado = []
-        for v, d, t, c, bloq in self.adyacencia.get(nodo_id, []):
-            if ignorar_bloqueadas and bloq:
-                continue
-            resultado.append((v, d, t, c))
-        return resultado
+        return [
+            (v, d, t, c) for v, d, t, c, bloq
+            in self.adyacencia.get(nodo_id, [])
+            if not (ignorar_bloqueadas and bloq)
+        ]
 
     def nodo(self, nid: str) -> Nodo:
         return self.nodos[nid]
@@ -676,6 +461,19 @@ class GrafoOSM:
 
     def distancia_directa(self, a: str, b: str) -> float:
         return self.nodos[a].distancia_a(self.nodos[b])
+
+    # ── Nodo más cercano a coordenadas (lat, lon) ─────────────
+
+    def nodo_mas_cercano_a(self, lat: float, lon: float) -> str:
+        """Devuelve el nid más cercano a las coordenadas dadas."""
+        osmid = ox.distance.nearest_nodes(self.G_geo, lon, lat)
+        nid = self._osmid_a_nid.get(osmid)
+        if nid:
+            return nid
+        # Fallback: búsqueda lineal sobre nuestros nodos
+        return min(self.nodos,
+                   key=lambda n: (self.nodos[n].lat - lat)**2
+                               + (self.nodos[n].lon - lon)**2)
 
     # ── Bloqueo de calles ─────────────────────────────────────
 
@@ -691,7 +489,6 @@ class GrafoOSM:
             for i, (v, d, t, c, _) in enumerate(lst):
                 if v == vid:
                     lst[i] = (v, d, t, c, estado)
-        # También marcar en aristas raw para persistencia
         for a in self._aristas_raw:
             if (a.origen == origen and a.destino == destino) or \
                (a.bidireccional and a.origen == destino and a.destino == origen):
@@ -701,11 +498,6 @@ class GrafoOSM:
 
     def dijkstra(self, inicio: str, fin: str,
                  usar_tiempo: bool = False) -> tuple[list[str], float]:
-        """
-        Dijkstra con min-heap sobre la adyacencia propia.
-        Incorpora penalizacion_distancia (expo_rapida) por tramo.
-        Retorna (ruta_ids, costo_total).
-        """
         if inicio not in self.nodos or fin not in self.nodos:
             return [], float("inf")
 
@@ -740,101 +532,108 @@ class GrafoOSM:
             return [], float("inf")
         return ruta, dist[fin]
 
-    # ── Dijkstra via NetworkX (opcional, más preciso con OSMnx) ──
+    # ── Ruta con curvas reales usando NetworkX + G_geo ────────
 
-    def nx_shortest_path(self, inicio_nid: str, fin_nid: str,
+    def ruta_como_coordenadas(self, nids: list[str]) -> list[list[float]]:
+        """
+        Convierte una lista de nids en pares [lat, lon] siguiendo la
+        geometría real de las calles almacenada en G_geo.
+        """
+        puntos: list[list[float]] = []
+        for i in range(len(nids) - 1):
+            u_nid, v_nid = nids[i], nids[i + 1]
+            u_osm = self._nid_a_osmid.get(u_nid)
+            v_osm = self._nid_a_osmid.get(v_nid)
+
+            dibujado = False
+            if u_osm is not None and v_osm is not None:
+                # Intentar obtener geometría de la arista en G_geo
+                if self.G_geo.has_edge(u_osm, v_osm):
+                    datos = self.G_geo.get_edge_data(u_osm, v_osm)
+                    datos = datos[0] if 0 in datos else next(iter(datos.values()))
+                    geom = datos.get("geometry")
+                    if geom is not None:
+                        for coord in geom.coords:
+                            puntos.append([coord[1], coord[0]])  # lon,lat → lat,lon
+                        dibujado = True
+                elif self.G_geo.has_edge(v_osm, u_osm):
+                    datos = self.G_geo.get_edge_data(v_osm, u_osm)
+                    datos = datos[0] if 0 in datos else next(iter(datos.values()))
+                    geom = datos.get("geometry")
+                    if geom is not None:
+                        for coord in reversed(list(geom.coords)):
+                            puntos.append([coord[1], coord[0]])
+                        dibujado = True
+
+            if not dibujado:
+                # Fallback: línea recta
+                n1 = self.nodos.get(u_nid)
+                n2 = self.nodos.get(v_nid)
+                if n1:
+                    puntos.append([n1.lat, n1.lon])
+                if n2:
+                    puntos.append([n2.lat, n2.lon])
+
+        return puntos
+
+    # ── Dijkstra NetworkX (validación / comparación) ──────────
+
+    def nx_shortest_path(self, ini_nid: str, fin_nid: str,
                          weight: str = "length") -> tuple[list[str], float]:
-        """
-        Camino mínimo usando nx.shortest_path sobre el grafo OSMnx original.
-        Solo disponible cuando self.G_nx is not None.
-        Útil para comparar contra el Dijkstra propio.
-        """
-        if self.G_nx is None:
-            return self.dijkstra(inicio_nid, fin_nid)
-
-        # Convertir nid → osmid
-        nid_a_osmid = {v: k for k, v in
-                       {n: f"N{n}" for n in self.G_nx.nodes()}.items()}
-        nid_a_osmid["DEPOSITO"] = next(
-            (n for n in self.G_nx.nodes()
-             if self.nodos.get("DEPOSITO") and
-             abs(self.G_nx.nodes[n].get("y", 0) - self.nodos["DEPOSITO"].lat) < 0.0001),
-            None
-        )
-
-        osmid_i = nid_a_osmid.get(inicio_nid)
-        osmid_f = nid_a_osmid.get(fin_nid)
-        if osmid_i is None or osmid_f is None:
-            return self.dijkstra(inicio_nid, fin_nid)
-
+        u = self._nid_a_osmid.get(ini_nid)
+        v = self._nid_a_osmid.get(fin_nid)
+        if u is None or v is None:
+            return self.dijkstra(ini_nid, fin_nid)
         try:
-            ruta_osm  = nx.shortest_path(self.G_nx, osmid_i, osmid_f, weight=weight)
-            costo     = nx.shortest_path_length(self.G_nx, osmid_i, osmid_f, weight=weight)
-            osmid_a_nid = {v: k for k, v in nid_a_osmid.items() if v is not None}
-            ruta_nids = [osmid_a_nid.get(n, f"N{n}") for n in ruta_osm]
-            return ruta_nids, float(costo)
+            ruta_osm = nx.shortest_path(self.G_geo, u, v, weight=weight)
+            costo    = nx.shortest_path_length(self.G_geo, u, v, weight=weight)
+            ruta_nid = [self._osmid_a_nid.get(n, f"N{n}") for n in ruta_osm]
+            return ruta_nid, float(costo)
         except (nx.NetworkXNoPath, nx.NodeNotFound):
-            return self.dijkstra(inicio_nid, fin_nid)
+            return self.dijkstra(ini_nid, fin_nid)
 
-    # ── Par de Puntos Más Cercanos — O(n log n) ───────────────
+    # ── Par de Puntos Más Cercanos ────────────────────────────
 
-    def par_nodos_mas_cercanos(self,
-                               nodos_ids: list[str] | None = None
-                               ) -> tuple[float, str, str]:
-        """
-        Divide y Vencerás geométrico.
-        Retorna (distancia_px, id_nodo_A, id_nodo_B).
-        """
-        ids = nodos_ids if nodos_ids else list(self.nodos.keys())
+    def par_nodos_mas_cercanos(self, nodos_ids=None) -> tuple[float, str, str]:
+        ids = nodos_ids or list(self.nodos.keys())
         pts = [self.nodos[i] for i in ids if i in self.nodos]
         if len(pts) < 2:
             raise ValueError("Se necesitan al menos 2 nodos.")
         dist, a, b = par_mas_cercano(pts)
         return dist, a.id, b.id
 
-    # ── Coloreo de Grafos — Welsh-Powell O(V²+E) ─────────────
+    # ── Coloreo Welsh-Powell ──────────────────────────────────
 
     def obtener_coloreo(self, recalcular: bool = False) -> dict[str, int]:
-        """
-        Welsh-Powell sobre la adyacencia. Cachea el resultado.
-        Retorna {nodo_id → color_int}.
-        """
         if self._coloreo is None or recalcular:
-            ady_simple = {
-                nid: [v for v, *_ in lst]
-                for nid, lst in self.adyacencia.items()
-            }
+            ady_simple = {nid: [v for v, *_ in lst]
+                          for nid, lst in self.adyacencia.items()}
             self._coloreo = coloreo_grafos(ady_simple)
         return self._coloreo
 
     def nodos_por_color(self) -> dict[int, list[str]]:
-        """Invierte el coloreo: color → [lista de nodo_ids]."""
         coloreo = self.obtener_coloreo()
         grupos: dict[int, list[str]] = {}
         for nid, color in coloreo.items():
             grupos.setdefault(color, []).append(nid)
         return grupos
 
-    # ── Nodos ordenados por Merge Sort ────────────────────────
+    # ── Merge Sort ────────────────────────────────────────────
 
     def nodos_ordenados_por(self, clave: str = "x") -> list[Nodo]:
-        """Merge Sort sobre nodos. clave: 'x'|'y'|'lat'|'lon'"""
         return merge_sort_nodos(list(self.nodos.values()), clave)
 
-    # ── Utilidades extra (no estaban en el original) ──────────
+    # ── Utilidades de zona ────────────────────────────────────
 
     def nodos_en_zona(self, zona: str) -> list[str]:
-        """Lista de nodo_ids en la zona dada ('OESTE'|'CENTRO'|'ESTE')."""
         return list(self.zonas.get(zona, set()))
 
     def zona_de_nodo(self, nid: str) -> str:
-        """Retorna la zona a la que pertenece el nodo."""
         if nid not in self.nodos:
             return "CENTRO"
         return _zona_de_lon(self.nodos[nid].lon)
 
     def stats(self) -> dict:
-        """Estadísticas del grafo para mostrar en la GUI."""
         total_aristas = sum(len(v) for v in self.adyacencia.values()) // 2
         return {
             "nodos":   len(self.nodos),
@@ -845,15 +644,10 @@ class GrafoOSM:
         }
 
     def invalidar_cache(self):
-        """Elimina el caché para forzar nueva descarga en el próximo inicio."""
         if os.path.exists(_CACHE_FILE):
             os.remove(_CACHE_FILE)
-            print(f"  [GrafoOSM] Caché eliminada: {_CACHE_FILE}")
+            print(f"  [GrafoOSM] Caché eliminada.")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  ALIAS DE COMPATIBILIDAD
-#  algoritmos.py importa "GrafoSanSebastian" — este alias lo resuelve
-#  sin tocar ningún otro archivo.
-# ─────────────────────────────────────────────────────────────────────────────
+# Alias de compatibilidad con algoritmos.py
 GrafoSanSebastian = GrafoOSM
